@@ -20,7 +20,7 @@ denops.vim / Deno は不要です。
 ```lua
 -- lazy.nvim
 {
-	"you/skkelua",
+	"kjuq/skkelua.nvim",
 	config = function()
 		require("skkelua").config({
 			globalDictionaries = { "~/.skk/SKK-JISYO.L" },
@@ -82,6 +82,22 @@ require("skkelua").config({
 ```
 
 ハイライトは `SkkeluaIndicatorHira` などのグループで上書きできます。
+
+## 変換候補の補完表示 (builtin LSP)
+
+変換入力中 (▽かんじ) の候補を、Neovim 組み込みの補完メニューに自動表示できます。
+in-process の LSP サーバーとして実装されており、外部プロセスは起動しません。
+
+```lua
+require("skkelua").config({
+	completion = { enabled = true },
+})
+```
+
+- ▽ に続けてかなを打つと、見出しを前方一致検索した変換候補が pum に出ます
+- `<C-n>`/`<C-p>` で選択し、`<C-y>` で確定すると ▽かんじ が候補に置き換わり、
+  選んだ候補はユーザー辞書へ登録されます (次回から優先されます)
+- skkelua の有効・無効に連動して補完も付いたり外れたりします
 
 ## skkeleton との関係
 

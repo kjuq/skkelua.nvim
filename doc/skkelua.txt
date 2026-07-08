@@ -12,6 +12,7 @@ INTERFACE                                                  |skkelua-interface|
   LUA API                                                    |skkelua-lua-api|
   AUTOCMDS                                                  |skkelua-autocmds|
 OPTIONS                                                      |skkelua-options|
+COMPLETION                                                |skkelua-completion|
 INDICATOR                                                  |skkelua-indicator|
 SOURCES                                                      |skkelua-sources|
 KANATABLE                                                  |skkelua-kanatable|
@@ -157,6 +158,8 @@ config() に渡せる主なオプション (括弧内はデフォルト値):
 
 acceptIllegalResult (false)
 	かなに変換できなかった入力をそのまま残すかどうか。
+completion ({ enabled = false })
+	変換候補の builtin LSP 補完。|skkelua-completion| 参照。
 completionRankFile ("")
 	補完候補ランクの保存先ファイル。
 debug (false)
@@ -216,6 +219,29 @@ userDictionary (stdpath("data") .. "/skkelua/jisyo")
 	ユーザー辞書のパス。デフォルトは $XDG_DATA_HOME/nvim/skkelua/jisyo
 	(通常 ~/.local/share/nvim/skkelua/jisyo)。保存時にディレクトリは
 	自動作成されます。
+
+==============================================================================
+COMPLETION                                                *skkelua-completion*
+
+変換入力中 (▽かんじ) の候補を Neovim 組み込みの補完メニューへ自動表示します。
+in-process の LSP サーバー (|vim.lsp.start()| の cmd 関数) として実装されて
+おり、外部プロセスは起動しません。
+>lua
+	require("skkelua").config({
+		completion = { enabled = true },
+	})
+<
+動作:
+- skkelua の有効化時にカレントバッファへ attach し、無効化で外れます
+- ▽ に続くかなの入力 (ひらがながトリガー文字) で自動的に補完が要求され、
+  見出しを前方一致検索した変換候補が表示されます
+- 候補は |v:completed_item| 確定時 (CTRL-Y など) に ▽かんじ ごと置換され、
+  ユーザー辞書へ登録されます (以後の候補順に反映されます)
+- 候補の並びはユーザー辞書のランク (最近使った順) を優先します
+
+Note: 表示中の補完メニューの操作 (CTRL-N/CTRL-P/CTRL-Y) は Neovim 標準の
+ins-completion です。mappedKeys やバッファローカルマップで同じキーを
+skkelua に割り当てている場合は、|pumvisible()| で分岐してください。
 
 ==============================================================================
 INDICATOR                                                  *skkelua-indicator*

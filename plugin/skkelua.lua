@@ -28,3 +28,6 @@ vim.api.nvim_create_autocmd("InsertEnter", {
 		require("skkelua.indicator").attach()
 	end,
 })
+
+-- 変換候補の builtin LSP 補完 (skkelua の有効化・無効化に連動)
+require("skkelua.lsp").setup_autocmds()

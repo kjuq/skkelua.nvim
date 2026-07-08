@@ -265,7 +265,8 @@ end
 ---@param result string
 ---@return { state: { henkanFeed: string, phase: string }, result: string }
 local function build_result(result)
-	local state = require("skkelua.store").get_context().state
+	local store = require("skkelua.store")
+	local state = store.get_context().state
 	local phase
 	if state.type == "input" then
 		if state.mode == "okurinasi" then
@@ -278,6 +279,9 @@ local function build_result(result)
 	else
 		phase = state.type
 	end
+	-- 公開ステータス (phase() などが読む) へ反映する
+	store.status.phase = phase
+	store.status.henkanFeed = state.henkanFeed or ""
 	return {
 		state = {
 			henkanFeed = state.henkanFeed or "",
@@ -346,10 +350,6 @@ function M.handle(func, opts)
 	end
 
 	local ret = handle_request(func, opts, M.vim_status())
-
-	local status = require("skkelua.store").status
-	status.phase = ret.state.phase
-	status.henkanFeed = ret.state.henkanFeed
 
 	local result = ret.result
 	local is_cmd = vim.startswith(result, "<Cmd>")

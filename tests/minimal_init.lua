@@ -1,7 +1,7 @@
 -- ローカルの skkelua を普段の設定と切り離して試すための最小設定
 --
 -- 使い方:
---   nvim -u ~/codes/skkeleton-lua/skkelua/tests/minimal_init.lua
+--   nvim -u path/to/skkelua.nvim/tests/minimal_init.lua
 --
 -- insert モードで <C-j> でオン・オフ。ステータスラインに現在のモードが出る。
 -- ユーザー辞書はテスト用に /tmp に書くので、普段の辞書は汚れない。

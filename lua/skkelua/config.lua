@@ -54,9 +54,19 @@ local default_indicator = {
 
 M.default_indicator = default_indicator
 
+---@class skkelua.CompletionOptions
+---@field enabled boolean 変換候補を builtin LSP 補完として表示するかどうか
+local default_completion = {
+	enabled = false,
+}
+
+M.default_completion = default_completion
+
 ---@class skkelua.ConfigOptions
 M.config = {
 	acceptIllegalResult = false,
+	---@type skkelua.CompletionOptions
+	completion = vim.deepcopy(default_completion),
 	completionRankFile = "",
 	databasePath = "",
 	debug = false,
@@ -144,6 +154,12 @@ end
 
 local validators = {
 	acceptIllegalResult = ensure_bool("acceptIllegalResult"),
+	completion = function(x)
+		ensure_type(x, "table", "completion")
+		local merged = vim.tbl_extend("force", vim.deepcopy(M.default_completion), x)
+		ensure_type(merged.enabled, "boolean", "completion.enabled")
+		return merged
+	end,
 	completionRankFile = ensure_string("completionRankFile"),
 	databasePath = ensure_string("databasePath"),
 	debug = ensure_bool("debug"),
