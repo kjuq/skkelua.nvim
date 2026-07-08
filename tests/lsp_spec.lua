@@ -237,6 +237,64 @@ t.test("okuriari completion with confirmed sokuon", function()
 	vim.cmd.bwipeout({ bang = true })
 end)
 
+t.test("completion during henkan phase (candidate selection)", function()
+	local skkelua = require("skkelua")
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okuriari", "おくr", "送")
+	lib:register_henkan_result("okuriari", "おくr", "贈")
+	lib:register_henkan_result("okuriari", "おくr", "遅")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- OkuRu で送り仮名が確定し、即変換で ▼ 候補選択に入る
+	local pre_edit, params = setup_state({ "O", "k", "u", "R", "u" })
+	t.assert_equals("henkan", skkelua.phase())
+	t.assert_true(vim.startswith(pre_edit, "▼"))
+
+	local list = require("skkelua.lsp")._make_completion_list(params)
+	local by_label = {}
+	for _, item in ipairs(list.items) do
+		by_label[item.label] = item
+	end
+	-- 全候補が送り仮名付きの完成形で並ぶ
+	t.assert_true(by_label["送る"] ~= nil)
+	t.assert_true(by_label["贈る"] ~= nil)
+	t.assert_true(by_label["遅る"] ~= nil)
+
+	local okuru = by_label["贈る"]
+	-- バッファ上の ▼送る にマッチさせる
+	t.assert_equals(pre_edit, okuru.filterText)
+	t.assert_equals("贈る", okuru.textEdit.newText)
+	t.assert_equals(
+		{ skkelua = true, midasi = "おくr", word = "贈", type = "okuriari" },
+		okuru.data
+	)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("completion during okurinasi henkan phase", function()
+	setup_library()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- ▽かんじ からスペースで ▼ 候補選択へ
+	local pre_edit, params = setup_state({ "K", "a", "n", "j", "i", " " })
+	t.assert_equals("henkan", skkelua.phase())
+
+	local list = require("skkelua.lsp")._make_completion_list(params)
+	t.assert_true(#list.items >= 2)
+	local by_label = {}
+	for _, item in ipairs(list.items) do
+		by_label[item.label] = item
+	end
+	t.assert_true(by_label["漢字"] ~= nil)
+	t.assert_true(by_label["感じ"] ~= nil)
+	t.assert_equals(pre_edit, by_label["漢字"].filterText)
+	t.assert_equals("okurinasi", by_label["漢字"].data.type)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
 t.test("okuriari candidate registers with okuriari type", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })

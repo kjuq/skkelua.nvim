@@ -29,6 +29,8 @@ local function trigger_characters()
 	end
 	chars[#chars + 1] = "ー"
 	chars[#chars + 1] = require("skkelua.config").config.markerHenkan
+	-- 候補選択 (▼送る) への遷移は markerHenkanSelect の挿入で検知する
+	chars[#chars + 1] = require("skkelua.config").config.markerHenkanSelect
 	-- 送りあり入力 (▽おく*r) で挿入されるのは "*" と送りのローマ字。
 	-- 以降の絞り込みは isIncomplete による再リクエストが担うが、
 	-- 初回トリガーのためにこれらも含める
@@ -44,6 +46,7 @@ end
 ---@field midasi string 辞書の見出し
 ---@field okuri string 送り仮名 (送りなしは "")
 ---@field type skkelua.HenkanType
+---@field affix? skkelua.AffixType
 
 --- 送りなし変換入力 (▽かんじ) の候補: 見出しの前方一致検索
 ---@return skkelua.LspCandidate[]
@@ -77,6 +80,27 @@ local function feed_kana_candidates(kana_table, feed)
 		end
 	end
 	return kanas
+end
+
+--- 候補選択中 (▼送る) の候補: 引いてある変換候補をそのまま並べる
+---@return skkelua.LspCandidate[]
+local function henkan_candidates()
+	local state = require("skkelua.store").get_context().state
+	if state.type ~= "henkan" then
+		return {}
+	end
+	local okuri = state.converter and state.converter(state.okuriFeed) or state.okuriFeed
+	local result = {}
+	for _, word in ipairs(state.candidates) do
+		result[#result + 1] = {
+			word = word,
+			midasi = state.word,
+			okuri = okuri,
+			type = state.mode,
+			affix = state.affix,
+		}
+	end
+	return result
 end
 
 --- 送りあり変換入力 (▽おく*r) の候補:
@@ -123,12 +147,13 @@ local function make_completion_list(params)
 	local empty = { isIncomplete = true, items = {} }
 	local skkelua = require("skkelua")
 	local phase = skkelua.phase()
-	if not skkelua.is_enabled() or (phase ~= "input:okurinasi" and phase ~= "input:okuriari") then
+	local supported = phase == "input:okurinasi" or phase == "input:okuriari" or phase == "henkan"
+	if not skkelua.is_enabled() or not supported then
 		return empty
 	end
 	local pre_edit = skkelua.get_pre_edit()
-	local prefix = skkelua.get_prefix()
-	if pre_edit == "" or prefix == "" then
+	-- 変換入力中はかなが無ければ出さない (henkan は候補が引けているので不要)
+	if pre_edit == "" or (phase ~= "henkan" and skkelua.get_prefix() == "") then
 		return empty
 	end
 
@@ -163,15 +188,17 @@ local function make_completion_list(params)
 	local candidates
 	if phase == "input:okurinasi" then
 		candidates = okurinasi_candidates()
-	else
+	elseif phase == "input:okuriari" then
 		candidates = okuriari_candidates()
+	else
+		candidates = henkan_candidates()
 	end
 
 	local items = {}
 	local seen = {}
 	for _, c in ipairs(candidates) do
 		-- 送りありは語幹 + 送り仮名の完成形を挿入する
-		local display = (modify_candidate(c.word) or c.word) .. c.okuri
+		local display = (modify_candidate(c.word, c.affix) or c.word) .. c.okuri
 		if not seen[display] then
 			seen[display] = true
 			local annotation = c.word:match(";(.*)$")
@@ -189,9 +216,10 @@ local function make_completion_list(params)
 				detail = c.midasi,
 				kind = vim.lsp.protocol.CompletionItemKind.Text,
 				-- クライアントは typed text と filterText を照合する。
-				-- 送りなしは続きのかな入力で絞り込めるよう marker + 見出し、
-				-- 送りありは pre-edit そのもの (絞り込みは再リクエストが担う)
-				filterText = c.type == "okurinasi" and (marker .. c.midasi) or pre_edit,
+				-- 送りなし入力中は続きのかな入力で絞り込めるよう marker + 見出し、
+				-- それ以外 (送りあり入力・候補選択) は pre-edit そのもの
+				-- (絞り込みは isIncomplete の再リクエストが担う)
+				filterText = phase == "input:okurinasi" and (marker .. c.midasi) or pre_edit,
 				sortText = sort_text,
 				-- Note: PlainText だと word が filterText に fallback した場合に
 				--       newText が適用されない (単なる再挿入になる)。
