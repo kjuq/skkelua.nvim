@@ -50,7 +50,7 @@ t.test("disable with l key", function()
 	with_buffer(function()
 		feed("iJnihongolenglish")
 		t.assert_equals("にほんごenglish", vim.fn.getline(1))
-		t.assert_equals(false, vim.g["skkeleton#enabled"])
+		t.assert_equals(false, require("skkelua").is_enabled())
 	end)
 end)
 
@@ -72,21 +72,27 @@ end)
 
 t.test("toggle mapping", function()
 	with_buffer(function()
-		vim.cmd("imap <buffer> <C-t> <Plug>(skkeleton-toggle)")
+		vim.cmd("imap <buffer> <C-t> <Plug>(skkelua-toggle)")
 		feed("i\20aiueo")
 		t.assert_equals("あいうえお", vim.fn.getline(1))
 	end)
 end)
 
-t.test("mode variable and autocmds", function()
+t.test("mode api and autocmds", function()
 	with_buffer(function()
-		vim.g.test_enabled_fired = false
-		vim.cmd("autocmd User skkeleton-enable-post let g:test_enabled_fired = v:true")
+		local skkelua = require("skkelua")
+		local enable_fired = false
+		local autocmd_id = vim.api.nvim_create_autocmd("User", {
+			pattern = "skkelua-enable-post",
+			callback = function()
+				enable_fired = true
+			end,
+		})
 		feed("iJ")
-		t.assert_equals("hira", vim.g["skkeleton#mode"])
-		t.assert_equals(true, vim.g.test_enabled_fired)
-		t.assert_equals(true, vim.g["skkeleton#enabled"])
-		vim.cmd("autocmd! User skkeleton-enable-post")
+		t.assert_equals("hira", skkelua.mode())
+		t.assert_equals(true, enable_fired)
+		t.assert_equals(true, skkelua.is_enabled())
+		vim.api.nvim_del_autocmd(autocmd_id)
 	end)
 end)
 

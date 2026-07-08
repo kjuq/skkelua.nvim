@@ -28,16 +28,22 @@ t.test("Fire autocmd for mode changed", function()
 	t.clean_dictionary_config()
 	local store = require("skkelua.store")
 	local mode_fn = require("skkelua.function.mode")
-	vim.cmd("autocmd User skkeleton-mode-changed let g:skkeleton#mode_actual = g:skkeleton#mode")
+	local actual = nil
+	local autocmd_id = vim.api.nvim_create_autocmd("User", {
+		pattern = "skkelua-mode-changed",
+		callback = function()
+			actual = store.status.mode
+		end,
+	})
 	mode_fn.katakana(store.get_context())
-	t.assert_equals("kata", vim.g["skkeleton#mode_actual"])
+	t.assert_equals("kata", actual)
 	mode_fn.katakana(store.get_context())
-	t.assert_equals("hira", vim.g["skkeleton#mode_actual"])
+	t.assert_equals("hira", actual)
 	mode_fn.hankatakana(store.get_context())
-	t.assert_equals("hankata", vim.g["skkeleton#mode_actual"])
+	t.assert_equals("hankata", actual)
 	mode_fn.zenkaku(store.get_context())
-	t.assert_equals("zenkaku", vim.g["skkeleton#mode_actual"])
-	vim.cmd("autocmd! User skkeleton-mode-changed")
+	t.assert_equals("zenkaku", actual)
+	vim.api.nvim_del_autocmd(autocmd_id)
 	require("skkelua.kana").set_current_kana_table("rom")
 end)
 
@@ -95,9 +101,15 @@ end)
 t.test("mode change at enable", function()
 	t.clean_dictionary_config()
 	local skkelua = require("skkelua")
-	vim.cmd("autocmd User skkeleton-mode-changed let g:skkeleton#mode_actual = skkeleton#mode()")
+	local actual = nil
+	local autocmd_id = vim.api.nvim_create_autocmd("User", {
+		pattern = "skkelua-mode-changed",
+		callback = function()
+			actual = skkelua.mode()
+		end,
+	})
 	skkelua.handle("enable", {})
-	t.assert_equals("hira", vim.g["skkeleton#mode_actual"])
-	vim.cmd("autocmd! User skkeleton-mode-changed")
+	t.assert_equals("hira", actual)
+	vim.api.nvim_del_autocmd(autocmd_id)
 	skkelua.disable_impl()
 end)

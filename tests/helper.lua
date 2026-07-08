@@ -56,9 +56,12 @@ function M.reset()
 	end
 	require("skkelua.kana")._reset()
 	require("skkelua")._reset_for_test()
-	require("skkelua.store").variables.lastMode = "hira"
-	vim.g["skkeleton#enabled"] = false
-	vim.g["skkeleton#mode"] = ""
+	local store = require("skkelua.store")
+	store.variables.lastMode = "hira"
+	store.status.enabled = false
+	store.status.mode = ""
+	store.status.phase = ""
+	store.status.henkanFeed = ""
 	-- TS 版テストハーネスの dispatcher.initialize(true) に相当:
 	-- 実際のユーザー辞書を読まないよう設定を切り離した上で初期化まで済ませる
 	-- (init() が library initializer を再設定するため、テスト中の register が

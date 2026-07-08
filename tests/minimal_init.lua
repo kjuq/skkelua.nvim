@@ -29,13 +29,13 @@ vim.keymap.set({ "i", "c" }, "<C-j>", "<Plug>(skkelua-toggle)")
 -- モード表示
 vim.opt.laststatus = 2
 local function update_statusline()
-	local mode = vim.g["skkeleton#mode"]
-	local label = (mode ~= nil and mode ~= "") and ("skk:" .. mode) or "skk:off"
+	local mode = require("skkelua").mode()
+	local label = mode ~= "" and ("skk:" .. mode) or "skk:off"
 	vim.o.statusline = "%f %m%=" .. label .. " "
 end
 update_statusline()
 vim.api.nvim_create_autocmd("User", {
-	pattern = "skkeleton-mode-changed",
+	pattern = "skkelua-mode-changed",
 	callback = update_statusline,
 })
 

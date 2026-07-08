@@ -27,14 +27,14 @@ end)
 t.test("popup open/close lifecycle", function()
 	local popup = require("skkelua.popup")
 	local function fire_handled()
-		vim.api.nvim_exec_autocmds("User", { pattern = "skkeleton-handled", modeline = false })
+		vim.api.nvim_exec_autocmds("User", { pattern = "skkelua-handled", modeline = false })
 	end
 	local before = #vim.api.nvim_list_wins()
 	popup.open({ "a: 候補1", "s: 候補2" })
-	-- 次の skkeleton-handled で開く
+	-- 次の skkelua-handled で開く
 	fire_handled()
 	t.assert_equals(before + 1, #vim.api.nvim_list_wins())
-	-- その次の skkeleton-handled で閉じる
+	-- その次の skkelua-handled で閉じる
 	fire_handled()
 	t.assert_equals(before, #vim.api.nvim_list_wins())
 end)

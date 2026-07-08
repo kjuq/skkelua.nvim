@@ -50,12 +50,12 @@ function M.register_word(context)
 
 	-- 後始末 (TS 版の finally 節に相当)
 	pcall(vim.api.nvim_exec_autocmds, "User", {
-		pattern = "skkeleton-enable-pre",
+		pattern = "skkelua-enable-pre",
 		modeline = false,
 	})
 	-- restore skkelua mode
 	require("skkelua").map()
-	vim.g["skkeleton#enabled"] = true
+	require("skkelua.store").status.enabled = true
 	vim.cmd.redrawstatus()
 	vim.api.nvim_set_option_value("virtualedit", save_virtualedit, { win = 0 })
 	-- restore stashed context
@@ -63,7 +63,7 @@ function M.register_word(context)
 	-- and mode
 	mode_mod.mode_change(context, context.mode)
 	pcall(vim.api.nvim_exec_autocmds, "User", {
-		pattern = "skkeleton-enable-post",
+		pattern = "skkelua-enable-post",
 		modeline = false,
 	})
 

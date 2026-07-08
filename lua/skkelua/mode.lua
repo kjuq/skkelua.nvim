@@ -4,16 +4,16 @@ local state_mod = require("skkelua.state")
 
 local M = {}
 
---- モードを変更し g:skkeleton#mode へ反映する
+--- モードを変更し公開ステータスへ反映する
 ---@param context skkelua.Context
 ---@param mode string
 function M.mode_change(context, mode)
 	local config = require("skkelua.config").config
 	local store = require("skkelua.store")
 	context.mode = mode
-	vim.g["skkeleton#mode"] = mode
+	require("skkelua.store").status.mode = mode
 	pcall(vim.api.nvim_exec_autocmds, "User", {
-		pattern = "skkeleton-mode-changed",
+		pattern = "skkelua-mode-changed",
 		modeline = false,
 	})
 	if config.keepMode then

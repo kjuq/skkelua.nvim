@@ -12,7 +12,7 @@ local M = {}
 
 ---@class skkelua.Context
 ---@field state skkelua.State
----@field mode string g:skkeleton#mode の写し (modeChange から設定される)
+---@field mode string 現在の入力モードの写し (modeChange から設定される)
 ---@field preEdit skkelua.PreEdit
 ---@field vimMode string
 ---@field lastCandidate skkelua.CandidateResult

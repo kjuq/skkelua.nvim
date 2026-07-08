@@ -89,15 +89,14 @@ t.test("handle with function option (kakutei)", function()
 	t.assert_equals("\b\b\b\bかんじ", ret.result)
 end)
 
-t.test("mapped_keys can be extended (<C-n> works via buffer mapping)", function()
-	setup_custom_keys()
+t.test("mappedKeys can be extended (<C-n> works via buffer mapping)", function()
+	local skkelua = setup_custom_keys()
 	local store = require("skkelua.store")
 
-	-- g:skkeleton#mapped_keys に <C-n> を足すと有効化時にマップされる
-	local saved = vim.g["skkeleton#mapped_keys"]
-	local keys = vim.deepcopy(saved or require("skkelua").get_default_mapped_keys())
+	-- config の mappedKeys に <C-n> を足すと有効化時にマップされる
+	local keys = skkelua.get_default_mapped_keys()
 	table.insert(keys, "<C-n>")
-	vim.g["skkeleton#mapped_keys"] = keys
+	skkelua.config({ mappedKeys = keys })
 
 	vim.cmd.enew({ bang = true })
 	vim.cmd("inoremap <buffer> J <Cmd>lua require('skkelua').handle('enable', {})<CR>")
@@ -110,7 +109,6 @@ t.test("mapped_keys can be extended (<C-n> works via buffer mapping)", function(
 	end)
 	vim.cmd("stopinsert")
 	vim.cmd.bwipeout({ bang = true })
-	vim.g["skkeleton#mapped_keys"] = saved
 	if not ok then
 		error(err, 0)
 	end

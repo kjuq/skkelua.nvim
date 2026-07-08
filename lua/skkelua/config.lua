@@ -23,6 +23,8 @@ M.config = {
 	keepState = false,
 	---@type table<string, string>
 	lowercaseMap = {},
+	---@type string[]? nil ならデフォルトキー (require("skkelua").get_default_mapped_keys())
+	mappedKeys = nil,
 	markerHenkan = "▽",
 	markerHenkanSelect = "▼",
 	registerConvertResult = false,
@@ -34,7 +36,9 @@ M.config = {
 	skkServerReqEnc = "euc-jp",
 	skkServerResEnc = "euc-jp",
 	sources = { "skk_dictionary" },
-	userDictionary = "~/.skkeleton",
+	-- $XDG_DATA_HOME/nvim/skkelua/jisyo (stdpath が ~/.local/share への
+	-- フォールバックを内蔵している)
+	userDictionary = vim.fs.joinpath(vim.fn.stdpath("data") --[[@as string]], "skkelua", "jisyo"),
 }
 
 local function ensure_type(x, ty, name)
@@ -107,6 +111,15 @@ local validators = {
 	end,
 	keepMode = ensure_bool("keepMode"),
 	keepState = ensure_bool("keepState"),
+	mappedKeys = function(x)
+		ensure_type(x, "table", "mappedKeys")
+		for _, v in ipairs(x) do
+			if type(v) ~= "string" then
+				error("'mappedKeys' must be array of string")
+			end
+		end
+		return x
+	end,
 	lowercaseMap = function(x)
 		ensure_type(x, "table", "lowercaseMap")
 		for k, v in pairs(x) do

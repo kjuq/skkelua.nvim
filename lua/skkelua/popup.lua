@@ -30,7 +30,7 @@ end
 ---@param candidates string[]
 local function open(candidates)
 	vim.api.nvim_create_autocmd("User", {
-		pattern = "skkeleton-handled",
+		pattern = "skkelua-handled",
 		once = true,
 		callback = function()
 			M.close()
@@ -65,11 +65,11 @@ local function open(candidates)
 end
 
 --- 候補ポップアップの表示を予約する
---- (実際の表示はキー処理が終わった skkeleton-handled のタイミングで行う)
+--- (実際の表示はキー処理が終わった skkelua-handled のタイミングで行う)
 ---@param candidates string[]
 function M.open(candidates)
 	vim.api.nvim_create_autocmd("User", {
-		pattern = "skkeleton-handled",
+		pattern = "skkelua-handled",
 		once = true,
 		callback = function()
 			open(candidates)

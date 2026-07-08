@@ -28,7 +28,7 @@ t.test("disable just after completion", function()
 	local context = store.get_context()
 	t.dispatch(context, ";hoge")
 	skkelua._handle_request("disable", { key = {} }, vim_status)
-	t.assert_equals(false, vim.g["skkeleton#enabled"])
+	t.assert_equals(false, require("skkelua").is_enabled())
 end)
 
 t.test("escape state", function()

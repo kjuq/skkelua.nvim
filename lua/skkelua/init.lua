@@ -31,14 +31,11 @@ local function init()
 	end
 	local config = require("skkelua.config").config
 	local store = require("skkelua.store")
-	if is_truthy(vim.g["skkeleton#debug"]) then
-		config.debug = true
-	end
 	if config.debug then
 		vim.print("skkelua: initialize")
 		vim.print(config)
 	end
-	emit_user_autocmd("skkeleton-initialize-pre")
+	emit_user_autocmd("skkelua-initialize-pre")
 
 	store.init_context()
 	store.set_library_initializer(function()
@@ -77,7 +74,7 @@ local function init()
 		end,
 	})
 
-	emit_user_autocmd("skkeleton-initialize-post")
+	emit_user_autocmd("skkelua-initialize-post")
 	initialized = true
 end
 
@@ -237,16 +234,16 @@ local function enable(opts, vim_status)
 	require("skkelua.kana").set_current_kana_table(config.kanaTable)
 	local context = store.init_context()
 
-	emit_user_autocmd("skkeleton-enable-pre")
+	emit_user_autocmd("skkelua-enable-pre")
 
 	require("skkelua.option").save_and_set()
 	M.map()
-	vim.g["skkeleton#enabled"] = true
+	store.status.enabled = true
 	local mode_fn = require("skkelua.function").mode_functions()[store.variables.lastMode]
 	if mode_fn then
 		mode_fn(context, "")
 	end
-	emit_user_autocmd("skkeleton-enable-post")
+	emit_user_autocmd("skkelua-enable-post")
 	return ""
 end
 
@@ -312,8 +309,8 @@ local function handle_request(func, opts, vim_status)
 	elseif func == "disable" then
 		return build_result(disable(opts, vim_status))
 	elseif func == "toggle" then
-		local no_mode = (vim.g["skkeleton#mode"] or "") == ""
-		local disabled = no_mode or not is_truthy(vim.g["skkeleton#enabled"])
+		local no_mode = store.status.mode == ""
+		local disabled = no_mode or not store.status.enabled
 		if disabled then
 			return build_result(enable(opts, vim_status))
 		else
@@ -350,7 +347,9 @@ function M.handle(func, opts)
 
 	local ret = handle_request(func, opts, M.vim_status())
 
-	vim.g["skkeleton#state"] = ret.state
+	local status = require("skkelua.store").status
+	status.phase = ret.state.phase
+	status.henkanFeed = ret.state.henkanFeed
 
 	local result = ret.result
 	local is_cmd = vim.startswith(result, "<Cmd>")
@@ -374,18 +373,19 @@ function M.handle(func, opts)
 	end
 end
 
---- skkeleton-handled イベントを次のタイミングで発火する
+--- skkelua-handled イベントを次のタイミングで発火する
 function M.doautocmd()
 	vim.defer_fn(function()
-		emit_user_autocmd("skkeleton-handled")
+		emit_user_autocmd("skkelua-handled")
 	end, 1)
 end
 
---- 現在のモードを返す (skkeleton#mode 相当)
----@return string
+--- 現在のモードを返す
+---@return string "hira"/"kata"/"hankata"/"zenkaku"/"abbrev"、無効時は ""
 function M.mode()
-	if M.is_enabled() then
-		return vim.g["skkeleton#mode"] or ""
+	local status = require("skkelua.store").status
+	if status.enabled then
+		return status.mode
 	else
 		return ""
 	end
@@ -393,7 +393,13 @@ end
 
 ---@return boolean
 function M.is_enabled()
-	return is_truthy(vim.g["skkeleton#enabled"])
+	return require("skkelua.store").status.enabled
+end
+
+--- 直近のキー処理後のフェーズを返す
+---@return string "input"/"input:okurinasi"/"input:okuriari"/"henkan"/"escape"/""
+function M.phase()
+	return require("skkelua.store").status.phase
 end
 
 --- デフォルトでマップされるキーのリスト (skkeleton#get_default_mapped_keys 相当)
@@ -424,7 +430,7 @@ function M.get_default_mapped_keys()
 	return keys
 end
 
---- 現在のバッファに skkeleton のキーマッピングを張る (skkeleton#map 相当)
+--- 現在のバッファに skkelua のキーマッピングを張る
 function M.map()
 	local notation = require("skkelua.notation")
 	local mode = vim.fn.mode()
@@ -434,7 +440,7 @@ function M.map()
 
 	require("skkelua.map").save(mode)
 
-	local mapped_keys = vim.g["skkeleton#mapped_keys"] or M.get_default_mapped_keys()
+	local mapped_keys = require("skkelua.config").config.mappedKeys or M.get_default_mapped_keys()
 	for _, c in ipairs(mapped_keys) do
 		local k
 		if #c > 1 and c:sub(1, 1) == "<" and c:lower() ~= "<bar>" then
@@ -443,9 +449,7 @@ function M.map()
 			k = c
 		end
 		local func = "handleKey"
-		-- <Plug>(skkelua-*) と互換名 <Plug>(skkeleton-*) のどちらも検知する
-		local rhs = vim.fn.maparg(c, mode)
-		local plug = rhs:match("<Plug>%(skkelua%-(%a+)%)") or rhs:match("<Plug>%(skkeleton%-(%a+)%)")
+		local plug = vim.fn.maparg(c, mode):match("<Plug>%(skkelua%-(%a+)%)")
 		if plug then
 			func = plug
 		end
@@ -461,20 +465,13 @@ function M.map()
 end
 
 --- skkelua のバッファローカルマッピングを全て消す
---- (skkeleton#dangerously_clear_buffer_local_mappings 相当)
 function M.dangerously_clear_buffer_local_mappings()
 	local bufnr = vim.api.nvim_get_current_buf()
 	for _, mode in ipairs({ "i", "c", "t", "l", "n", "v", "s", "o" }) do
 		for _, m in ipairs(vim.api.nvim_buf_get_keymap(bufnr, mode)) do
 			local rhs = m.rhs or ""
 			local desc = m.desc or ""
-			-- 互換名 (skkeleton) で張られたマッピングも対象にする
-			if
-				rhs:find("skkelua", 1, true)
-				or desc:find("skkelua", 1, true)
-				or rhs:find("skkeleton", 1, true)
-				or desc:find("skkeleton", 1, true)
-			then
+			if rhs:find("skkelua", 1, true) or desc:find("skkelua", 1, true) then
 				local ok = pcall(vim.api.nvim_buf_del_keymap, bufnr, mode, m.lhs)
 				if not ok then
 					vim.notify(
@@ -490,17 +487,18 @@ function M.dangerously_clear_buffer_local_mappings()
 	end
 end
 
---- skkeleton を無効化する (skkeleton#disable 相当)
+--- skkelua を無効化する
 --- Note: 変換途中の確定を伴う無効化は handle("disable") を使うこと
 function M.disable_impl()
-	if is_truthy(vim.g["skkeleton#enabled"]) then
-		emit_user_autocmd("skkeleton-disable-pre")
+	local status = require("skkelua.store").status
+	if status.enabled then
+		emit_user_autocmd("skkelua-disable-pre")
 		require("skkelua.map").restore()
 		require("skkelua.option").restore()
-		vim.g["skkeleton#mode"] = ""
-		emit_user_autocmd("skkeleton-mode-changed")
-		emit_user_autocmd("skkeleton-disable-post")
-		vim.g["skkeleton#enabled"] = false
+		status.mode = ""
+		emit_user_autocmd("skkelua-mode-changed")
+		emit_user_autocmd("skkelua-disable-post")
+		status.enabled = false
 	end
 end
 

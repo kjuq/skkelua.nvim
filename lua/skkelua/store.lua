@@ -68,4 +68,17 @@ M.variables = {
 	lastMode = "hira",
 }
 
+-- 公開ステータス (require("skkelua") の mode()/is_enabled()/phase() が読む)
+---@class skkelua.Status
+---@field enabled boolean
+---@field mode string 現在の入力モード。無効時は ""
+---@field phase string 直近のキー処理後のフェーズ
+---@field henkanFeed string
+M.status = {
+	enabled = false,
+	mode = "",
+	phase = "",
+	henkanFeed = "",
+}
+
 return M

@@ -296,6 +296,8 @@ function Dictionary:write_file(path, rank_path)
 	end
 	lines[#lines + 1] = ""
 
+	-- デフォルトの保存先 ($XDG_DATA_HOME/nvim/skkelua/) が無い場合に備えて作る
+	vim.fn.mkdir(vim.fs.dirname(path), "p")
 	local f, err = io.open(path, "wb")
 	if not f then
 		vim.notify(("warning(skkelua): can't write userDictionary to %s"):format(path), vim.log.levels.WARN)
@@ -319,6 +321,7 @@ function Dictionary:write_file(path, rank_path)
 	for _, e in ipairs(entries) do
 		rank_list[#rank_list + 1] = e[1]
 	end
+	vim.fn.mkdir(vim.fs.dirname(rank_path), "p")
 	local rf, rerr = io.open(rank_path, "wb")
 	if not rf then
 		vim.notify(
