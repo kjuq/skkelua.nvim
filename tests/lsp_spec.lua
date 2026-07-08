@@ -306,6 +306,41 @@ t.test("okuriari candidate registers with okuriari type", function()
 	t.assert_equals({}, lib:get_henkan_result("okurinasi", "はしr"))
 end)
 
+t.test("CompleteDone registers only on accept", function()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+	local lib = require("skkelua.store").get_library()
+	local lsp_mod = require("skkelua.lsp")
+
+	local function completed_item(word)
+		return {
+			user_data = {
+				nvim = {
+					lsp = {
+						completion_item = {
+							data = { skkelua = true, midasi = "むこう", word = word, type = "okurinasi" },
+						},
+					},
+				},
+			},
+		}
+	end
+
+	-- <Esc> などによる discard / cancel では登録しない
+	lsp_mod._on_complete_done("discard", completed_item("無香"))
+	lsp_mod._on_complete_done("cancel", completed_item("無効"))
+	t.assert_equals({}, lib:get_henkan_result("okurinasi", "むこう"))
+
+	-- accept (<C-y> 等) では登録する
+	lsp_mod._on_complete_done("accept", completed_item("向こう"))
+	t.assert_equals({ "向こう" }, lib:get_henkan_result("okurinasi", "むこう"))
+
+	-- reason が取れない環境では従来通り登録する
+	lsp_mod._on_complete_done(nil, completed_item("尨"))
+	t.assert_equals({ "尨", "向こう" }, lib:get_henkan_result("okurinasi", "むこう"))
+end)
+
 t.test("complete_callback registers the selected candidate", function()
 	setup_library()
 	local skkelua = require("skkelua")

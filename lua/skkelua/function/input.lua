@@ -90,6 +90,12 @@ end
 ---@param char string
 function M.kana_input(context, char)
 	local config = require("skkelua.config").config
+	-- keymap に割り当てのない特殊キー (<C-n> など) が流れてきた場合、
+	-- 制御文字が pre-edit に混入して変換を壊すため無視する
+	-- (<Tab>/<NL> は既存挙動を維持する)
+	if char:match("^[\1-\8\11-\31\127]$") then
+		return
+	end
 	context.state.type = "input"
 	local state = context.state
 

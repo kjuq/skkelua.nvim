@@ -1,5 +1,6 @@
 -- 状態別キーマップ (keymap.ts に相当)
 
+
 local M = {}
 
 ---@class skkelua.KeyMap
@@ -93,6 +94,15 @@ function M.register_key_map(state, key, func)
 		error(("unknown function: %s"):format(name))
 	end
 	key_map.map[key] = name
+end
+
+--- テスト用: 登録されている機能名を返す
+---@param state string
+---@param key string
+---@return string|skkelua.Func|nil
+function M._get(state, key)
+	local key_map = key_maps[state]
+	return key_map and key_map.map[key]
 end
 
 return M

@@ -284,12 +284,24 @@ end
 --------------------------------------------------------------------
 
 --- 候補確定時にユーザー辞書へ登録する
-local function on_complete_done()
-	local item = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp", "completion_item")
+--- (テスト用に reason と completed_item を注入できるよう分離している)
+---@param reason? string v:event.reason ("accept"/"cancel"/"discard")
+---@param completed_item? table v:completed_item
+function M._on_complete_done(reason, completed_item)
+	-- <Esc>/<C-e> などで確定せず閉じた場合 (cancel/discard) は登録しない。
+	-- reason が取れない環境では従来通り登録する
+	if reason ~= nil and reason ~= "accept" then
+		return
+	end
+	local item = vim.tbl_get(completed_item or {}, "user_data", "nvim", "lsp", "completion_item")
 	local data = item and item.data
 	if data and data.skkelua then
 		require("skkelua").complete_callback(data.midasi, data.word, data.type)
 	end
+end
+
+local function on_complete_done()
+	M._on_complete_done(vim.tbl_get(vim.v.event, "reason"), vim.v.completed_item)
 end
 
 ---@param client_id integer

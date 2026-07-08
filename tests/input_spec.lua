@@ -30,6 +30,20 @@ t.test("kana input with illegal key", function()
 	end
 end)
 
+t.test("kana input ignores control characters", function()
+	local input = require("skkelua.function.input")
+	local context = new_context()
+	-- keymap 未割り当ての特殊キー (<C-n> = \14 など) が流れてきても
+	-- pre-edit に混入しない
+	t.dispatch(context, "Muko")
+	input.kana_input(context, "\14")
+	input.kana_input(context, "\16")
+	t.assert_equals("▽むこ", context:to_string())
+	-- 確定文字列にも混ざらない
+	input.kana_input(context, "u")
+	t.assert_equals("▽むこう", context:to_string())
+end)
+
 t.test("henkan point", function()
 	local context = new_context()
 	local tests = {
