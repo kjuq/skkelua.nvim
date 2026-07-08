@@ -671,6 +671,7 @@ function M._reset_for_test()
 	require("skkelua.store").init_context()
 	require("skkelua.store").init_library()
 	require("skkelua.function.henkan")._reset()
+	require("skkelua.indicator")._reset_for_test()
 end
 
 return M

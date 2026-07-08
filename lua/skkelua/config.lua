@@ -4,6 +4,56 @@ local util = require("skkelua.util")
 
 local M = {}
 
+---@class skkelua.IndicatorOptions
+---@field enabled boolean
+---@field eijiText string
+---@field hiraText string
+---@field kataText string
+---@field hankataText string
+---@field zenkakuText string
+---@field abbrevText string
+---@field eijiHlName string
+---@field hiraHlName string
+---@field kataHlName string
+---@field hankataHlName string
+---@field zenkakuHlName string
+---@field abbrevHlName string
+---@field border? string|string[]|fun(args: { mode: string }): any
+---@field row? integer nil なら border に応じて自動 (border なし: 1 / あり: 0)
+---@field col integer
+---@field zindex? integer
+---@field alwaysShown boolean
+---@field fadeOutMs integer
+---@field ignoreFt string[]
+---@field bufFilter? fun(buf: integer): boolean
+---@field useDefaultHighlight boolean
+local default_indicator = {
+	enabled = true,
+	eijiText = "英字",
+	hiraText = "ひら",
+	kataText = "カタ",
+	hankataText = "半ｶﾀ",
+	zenkakuText = "全英",
+	abbrevText = "abbr",
+	eijiHlName = "SkkeluaIndicatorEiji",
+	hiraHlName = "SkkeluaIndicatorHira",
+	kataHlName = "SkkeluaIndicatorKata",
+	hankataHlName = "SkkeluaIndicatorHankata",
+	zenkakuHlName = "SkkeluaIndicatorZenkaku",
+	abbrevHlName = "SkkeluaIndicatorAbbrev",
+	border = nil,
+	row = nil,
+	col = 1,
+	zindex = nil,
+	alwaysShown = true,
+	fadeOutMs = 3000,
+	ignoreFt = {},
+	bufFilter = nil,
+	useDefaultHighlight = true,
+}
+
+M.default_indicator = default_indicator
+
 ---@class skkelua.ConfigOptions
 M.config = {
 	acceptIllegalResult = false,
@@ -18,6 +68,8 @@ M.config = {
 	immediatelyCancel = true,
 	immediatelyDictionaryRW = true,
 	immediatelyOkuriConvert = true,
+	---@type skkelua.IndicatorOptions
+	indicator = vim.deepcopy(default_indicator),
 	kanaTable = "rom",
 	keepMode = false,
 	keepState = false,
@@ -101,6 +153,23 @@ local validators = {
 	immediatelyCancel = ensure_bool("immediatelyCancel"),
 	immediatelyDictionaryRW = ensure_bool("immediatelyDictionaryRW"),
 	immediatelyOkuriConvert = ensure_bool("immediatelyOkuriConvert"),
+	indicator = function(x)
+		ensure_type(x, "table", "indicator")
+		-- 部分指定をデフォルトへマージする
+		local merged = vim.tbl_extend("force", vim.deepcopy(default_indicator), x)
+		for _, key in ipairs({ "enabled", "alwaysShown", "useDefaultHighlight" }) do
+			ensure_type(merged[key], "boolean", "indicator." .. key)
+		end
+		for _, key in ipairs({ "fadeOutMs", "col" }) do
+			ensure_type(merged[key], "number", "indicator." .. key)
+		end
+		for _, name in ipairs({ "eiji", "hira", "kata", "hankata", "zenkaku", "abbrev" }) do
+			ensure_type(merged[name .. "Text"], "string", "indicator." .. name .. "Text")
+			ensure_type(merged[name .. "HlName"], "string", "indicator." .. name .. "HlName")
+		end
+		ensure_type(merged.ignoreFt, "table", "indicator.ignoreFt")
+		return merged
+	end,
 	kanaTable = function(x)
 		local name = ensure_type(x, "string", "kanaTable")
 		local ok = pcall(require("skkelua.kana").get_kana_table, name)
@@ -211,6 +280,9 @@ function M.set_config(new_config)
 	normalize()
 
 	require("skkelua.kana").load_kana_table_files(M.config.globalKanaTableFiles)
+
+	-- indicator が起動済みなら新しい設定で表示を作り直す
+	require("skkelua.indicator").refresh()
 end
 
 return M

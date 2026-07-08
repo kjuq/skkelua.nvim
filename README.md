@@ -1,8 +1,10 @@
 # skkelua
 
-[skkeleton](https://github.com/vim-skk/skkeleton) (denops/Deno 製の SKK 日本語入力環境) を Neovim 専用に pure Lua で書き換えたプラグインです。
+Neovim 専用の SKK 日本語入力環境です。pure Lua で実装されており、
+Neovim 組み込みの Lua ランタイムだけで動作します。
 
-denops.vim と Deno のインストールが不要になり、Neovim 組み込みの Lua ランタイムだけで動作します。
+[skkeleton](https://github.com/vim-skk/skkeleton) (denops/Deno 製) を参考に
+作られた独立のプラグインで、モードインジケータも内蔵しています。
 
 ## Requirements
 
@@ -45,58 +47,63 @@ require("skkelua").config({
 		"~/.skk/SKK-JISYO.L",              -- エンコーディング自動判定
 		{ "~/.skk/SKK-JISYO.geo", "euc-jp" }, -- 明示指定
 	},
-	userDictionary = "~/.skkeleton",
 	eggLikeNewline = true,
 	registerConvertResult = true,
 })
 ```
 
-詳細は [doc/skkelua.txt](doc/skkelua.txt) を参照してください。
+ユーザー辞書はデフォルトで `stdpath("data")/skkelua/jisyo`
+(通常 `~/.local/share/nvim/skkelua/jisyo`) に保存されます。
 
-## skkeleton 互換
+現在の状態は Lua API で参照できます。
 
-denops 版 skkeleton からの移行と周辺プラグインとの連携のため、
-ユーザーに見えるインターフェイスは skkeleton の名前を維持しています。
-
-- Vim script 関数: `skkeleton#config()` / `skkeleton#register_kanatable()` /
-  `skkeleton#register_keymap()` / `skkeleton#handle()` など (autoload/skkeleton.vim)
-- グローバル変数: `g:skkeleton#enabled` / `g:skkeleton#mode` / `g:skkeleton#state` /
-  `g:skkeleton#mapped_keys`
-- autocmd: `User skkeleton-enable-pre/post` / `skkeleton-disable-pre/post` /
-  `skkeleton-mode-changed` / `skkeleton-handled` など
-- `<Plug>(skkeleton-enable/disable/toggle)` (互換エイリアス。正式名は `<Plug>(skkelua-*)`)
-- ユーザー辞書のデフォルトパス `~/.skkeleton` (denops 版の辞書をそのまま引き継げます)
-
-このため [skkeleton_indicator.nvim](https://github.com/delphinus/skkeleton_indicator.nvim)
-などの周辺プラグインや、denops 版向けの既存設定の多くはそのまま動きます。
-
-```vim
-" denops 版向けの設定がそのまま動く例
-call skkeleton#config({ 'globalDictionaries': ['~/.skk/SKK-JISYO.L'] })
-call skkeleton#register_kanatable('rom', { 'jj': 'escape' })
-imap <C-j> <Plug>(skkeleton-toggle)
+```lua
+require("skkelua").is_enabled() -- 有効かどうか
+require("skkelua").mode()       -- "hira" / "kata" / "hankata" / "zenkaku" / "abbrev" / ""
+require("skkelua").phase()      -- "input" / "input:okurinasi" / "input:okuriari" / "henkan" / ...
 ```
 
-## オリジナル (denops 版) との違い
+詳細は [doc/skkelua.txt](doc/skkelua.txt) を参照してください。
 
-| 項目 | denops 版 skkeleton | skkelua |
+## モードインジケータ
+
+カーソル付近に現在の入力モード (ひら/カタ/英字など) をフローティング表示する
+インジケータを内蔵しています。デフォルトで有効です。
+
+```lua
+require("skkelua").config({
+	indicator = {
+		enabled = true,       -- false で無効化
+		alwaysShown = false,  -- skkelua が有効な間だけ表示
+		fadeOutMs = 0,        -- 0 で自動フェードアウトなし
+		hiraText = "ひら",    -- 表示テキストのカスタマイズ
+	},
+})
+```
+
+ハイライトは `SkkeluaIndicatorHira` などのグループで上書きできます。
+
+## skkeleton との関係
+
+skkelua は [vim-skk/skkeleton](https://github.com/vim-skk/skkeleton) の
+TypeScript 実装を参考に Lua で書かれた別のプラグインです。
+変換エンジンの挙動・辞書形式・設定オプション名の多くは skkeleton を踏襲していますが、
+API 互換はありません (`skkeleton#*` 関数や `g:skkeleton#*` 変数は提供しません)。
+
+denops 版との主な違い:
+
+| 項目 | skkeleton | skkelua |
 |---|---|---|
 | ランタイム | Deno + denops.vim | Neovim 組み込み Lua のみ |
 | 対応エディタ | Vim / Neovim | Neovim 0.10+ のみ |
-| 設定 API | `skkeleton#config()` | `require("skkelua").config()` (Vim script 互換あり) |
-| 辞書ロード | 非同期 | 同期 (SKK-JISYO.L 規模で数百 ms、初回 enable 時のみ) |
-| 辞書形式 | SKK/JSON/YAML/msgpack/Deno KV | SKK/JSON/msgpack (YAML と Deno KV は非対応) |
+| 設定 API | `skkeleton#config()` | `require("skkelua").config()` |
+| モードインジケータ | 別プラグイン (skkeleton_indicator.nvim) | 内蔵 |
+| ユーザー辞書デフォルト | `~/.skkeleton` | `stdpath("data")/skkelua/jisyo` |
+| 辞書ロード | 非同期 | 同期 (SKK-JISYO.L 規模で数百 ms、初回のみ) |
+| 辞書形式 | SKK/JSON/YAML/msgpack/Deno KV | SKK/JSON/msgpack |
 | SKK サーバー | 非同期 TCP | 同期 TCP (タイムアウト 1 秒) |
 | Google 日本語入力 | fetch | curl |
-| ddc.vim ソース | 同梱 | 非同梱 (補完用 API は `get_completion_result()` 等として提供) |
-
-### 非対応の機能
-
-- `updateDatabase` (Deno KV ベースの辞書データベース): `databasePath` 設定は受け付けますが機能しません
-- YAML 辞書
-- ddc.vim / ddc 連携ソース (denops 依存のため)。代わりに補完プラグイン向けの Lua API
-  (`get_pre_edit()`, `get_prefix()`, `get_completion_result()`, `get_ranks()`,
-  `complete_callback()`) を提供します
+| ddc.vim ソース | 同梱 | 非同梱 (補完用 Lua API を提供) |
 
 ## Development
 
@@ -113,9 +120,12 @@ nvim -u tests/minimal_init.lua
 
 ## License
 
-zlib license (オリジナルの skkeleton に準拠)
+zlib license
 
 ## Credits
 
-このプラグインは [vim-skk/skkeleton](https://github.com/vim-skk/skkeleton) の
-TypeScript 実装を Lua に移植したものです。
+- 変換エンジンは [vim-skk/skkeleton](https://github.com/vim-skk/skkeleton)
+  (Copyright (c) 2021 kuuote, zlib license) の TypeScript 実装を Lua に移植したものです
+- モードインジケータは
+  [delphinus/skkeleton_indicator.nvim](https://github.com/delphinus/skkeleton_indicator.nvim)
+  (Copyright (c) 2021 Yasushi Jinnouchi, zlib license) を基に内蔵化したものです

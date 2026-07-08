@@ -19,3 +19,12 @@ end
 -- (enable action was failed)
 -- so makes dummy mapping
 vim.keymap.set("l", "<Plug>(skkelua-dummy)", ":")
+
+-- モードインジケータの遅延起動
+vim.api.nvim_create_autocmd("InsertEnter", {
+	group = vim.api.nvim_create_augroup("skkelua-indicator-attach", { clear = true }),
+	once = true,
+	callback = function()
+		require("skkelua.indicator").attach()
+	end,
+})
