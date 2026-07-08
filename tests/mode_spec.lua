@@ -1,0 +1,103 @@
+-- function/mode_test.ts の移植
+
+local t = require("tests.helper")
+
+t.test("Can get skkeleton mode", function()
+	t.clean_dictionary_config()
+	local skkeleton = require("skkeleton")
+	local store = require("skkeleton.store")
+	local mode_fn = require("skkeleton.function.mode")
+	local vim_status = { mode = "", prevInput = "", completeInfo = {}, completeType = "" }
+	t.assert_equals("", skkeleton.mode())
+	skkeleton._handle_request("enable", {}, vim_status)
+	t.assert_equals("hira", skkeleton.mode())
+	skkeleton._handle_request("disable", {}, vim_status)
+	t.assert_equals("", skkeleton.mode())
+	skkeleton._handle_request("enable", {}, vim_status)
+	mode_fn.katakana(store.get_context())
+	t.assert_equals("kata", skkeleton.mode())
+	mode_fn.katakana(store.get_context())
+	t.assert_equals("hira", skkeleton.mode())
+	mode_fn.hankatakana(store.get_context())
+	t.assert_equals("hankata", skkeleton.mode())
+	mode_fn.zenkaku(store.get_context())
+	t.assert_equals("zenkaku", skkeleton.mode())
+end)
+
+t.test("Fire autocmd for mode changed", function()
+	t.clean_dictionary_config()
+	local store = require("skkeleton.store")
+	local mode_fn = require("skkeleton.function.mode")
+	vim.cmd("autocmd User skkeleton-mode-changed let g:skkeleton#mode_actual = g:skkeleton#mode")
+	mode_fn.katakana(store.get_context())
+	t.assert_equals("kata", vim.g["skkeleton#mode_actual"])
+	mode_fn.katakana(store.get_context())
+	t.assert_equals("hira", vim.g["skkeleton#mode_actual"])
+	mode_fn.hankatakana(store.get_context())
+	t.assert_equals("hankata", vim.g["skkeleton#mode_actual"])
+	mode_fn.zenkaku(store.get_context())
+	t.assert_equals("zenkaku", vim.g["skkeleton#mode_actual"])
+	vim.cmd("autocmd! User skkeleton-mode-changed")
+	require("skkeleton.kana").set_current_kana_table("rom")
+end)
+
+t.test("abbrev", function()
+	t.clean_dictionary_config()
+	local store = require("skkeleton.store")
+	local mode_fn = require("skkeleton.function.mode")
+	local kakutei = require("skkeleton.function.common").kakutei
+	local input_fn = require("skkeleton.function.input")
+	local c = store.init_context()
+
+	-- 確定するとモードが戻る
+	mode_fn.abbrev(c)
+	t.assert_equals("abbrev", c.mode)
+	kakutei(c)
+	t.assert_equals("hira", c.mode)
+
+	-- 文字を消すとモードが戻る
+	mode_fn.abbrev(c)
+	input_fn.delete_char(c)
+	t.assert_equals("hira", c.mode)
+
+	-- 大文字をちゃんと打てる
+	mode_fn.abbrev(c)
+	input_fn.kana_input(c, "A")
+	t.assert_equals("▽A", c:to_string())
+	-- 確定したら元の状態に戻る
+	kakutei(c)
+	input_fn.kana_input(c, "A")
+	t.assert_equals("▽あ", c:to_string())
+end)
+
+t.test("can convert okuri string properly when mode changed", function()
+	t.clean_dictionary_config()
+	local store = require("skkeleton.store")
+	local mode_fn = require("skkeleton.function.mode")
+	local kakutei = require("skkeleton.function.common").kakutei
+	local lib = store.get_library()
+	lib:register_henkan_result("okuriari", "はg", "剥")
+	local context = store.init_context()
+
+	mode_fn.katakana(context)
+	t.dispatch(context, ";ha;ge")
+	t.assert_equals("▼剥ゲ", context:to_string())
+	kakutei(context)
+	t.assert_equals("剥ゲ", context.preEdit:output(""))
+
+	mode_fn.hankatakana(context)
+	t.dispatch(context, ";ha;ge")
+	t.assert_equals("▼剥ｹﾞ", context:to_string())
+	kakutei(context)
+	t.assert_equals("剥ｹﾞ", context.preEdit:output(""))
+end)
+
+t.test("mode change at enable", function()
+	t.clean_dictionary_config()
+	local skkeleton = require("skkeleton")
+	vim.cmd("autocmd User skkeleton-mode-changed let g:skkeleton#mode_actual = skkeleton#mode()")
+	skkeleton.handle("enable", {})
+	t.assert_equals("hira", vim.g["skkeleton#mode_actual"])
+	vim.cmd("autocmd! User skkeleton-mode-changed")
+	skkeleton.disable_impl()
+end)

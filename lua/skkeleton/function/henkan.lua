@@ -1,0 +1,187 @@
+-- 変換の開始・候補送り (function/henkan.ts に相当)
+
+local util = require("skkeleton.util")
+
+local M = {}
+
+-- henkanFirst の再入防止フラグ (TS 版の Mutex に相当)
+-- ユーザーが key 単体に henkanFirst を振っていると kana_input 経由で
+-- 無限ループを起こすので、繰り返し呼ばれた場合は直接入力にフォールバックする
+local henkan_locked = false
+
+--- 変換を開始する
+---@param context skkeleton.Context
+---@param key string
+function M.henkan_first(context, key)
+	if context.state.type ~= "input" then
+		return
+	end
+
+	local input_fn = require("skkeleton.function.input")
+	input_fn.kakutei_feed(context)
+
+	if context.state.mode == "direct" then
+		if henkan_locked then
+			context:kakutei(key)
+		else
+			henkan_locked = true
+			local ok, err = pcall(input_fn.kana_input, context, key)
+			henkan_locked = false
+			if not ok then
+				error(err)
+			end
+		end
+		return
+	end
+
+	if context.state.henkanFeed == "" then
+		return
+	end
+
+	local state = context.state --[[@as skkeleton.HenkanState]]
+	state.type = "henkan"
+	state.candidates = {}
+	state.candidateIndex = -1
+
+	local lib = require("skkeleton.store").get_library()
+	local word
+	if state.mode == "okurinasi" then
+		word = state.henkanFeed
+	else
+		word = require("skkeleton.okuri").get_okuri_str(state.henkanFeed, state.okuriFeed)
+	end
+	state.word = word
+	if
+		state.affix == nil
+		and not state.directInput
+		and (state.mode == "okurinasi" or state.mode == "okuriari")
+	then
+		-- When user manually uses henkanPoint,
+		-- henkanFeed like `>prefix` and `suffix>` may
+		-- reach here with undefined affix
+		if state.henkanFeed:match(">$") then
+			state.affix = "prefix"
+		elseif state.henkanFeed:match("^>") then
+			state.affix = "suffix"
+		else
+			state.affix = nil
+		end
+	end
+	state.candidates = lib:get_henkan_result(state.mode, word)
+	M.henkan_forward(context)
+end
+
+--- 次候補へ進む
+---@param context skkeleton.Context
+function M.henkan_forward(context)
+	local config = require("skkeleton.config").config
+	local state = context.state
+	if state.type ~= "henkan" then
+		return
+	end
+	local old_candidate_index = state.candidateIndex
+	if state.candidateIndex >= config.showCandidatesCount then
+		state.candidateIndex = state.candidateIndex + 7
+	else
+		state.candidateIndex = state.candidateIndex + 1
+	end
+	if #state.candidates <= state.candidateIndex then
+		if require("skkeleton.function.dictionary").register_word(context) then
+			return
+		end
+		state.candidateIndex = old_candidate_index
+		if state.candidateIndex == -1 then
+			context.state.type = "input"
+		end
+	end
+	if state.candidateIndex >= config.showCandidatesCount then
+		M.show_candidates(state)
+	end
+end
+
+--- 前候補へ戻る
+---@param context skkeleton.Context
+function M.henkan_backward(context)
+	local config = require("skkeleton.config").config
+	local state = context.state
+	if state.type ~= "henkan" then
+		return
+	end
+	if state.candidateIndex >= config.showCandidatesCount then
+		state.candidateIndex = math.max(state.candidateIndex - 7, config.showCandidatesCount - 1)
+	else
+		state.candidateIndex = state.candidateIndex - 1
+	end
+	if state.candidateIndex < 0 then
+		context.state.type = "input"
+		return
+	end
+	if state.candidateIndex >= config.showCandidatesCount then
+		M.show_candidates(state)
+	end
+end
+
+--- 候補一覧ポップアップを表示する
+---@param state skkeleton.HenkanState
+function M.show_candidates(state)
+	local config = require("skkeleton.config").config
+	local modify_candidate = require("skkeleton.candidate").modify_candidate
+	local idx = state.candidateIndex
+	local list = {}
+	for i = 1, 7 do
+		local c = state.candidates[idx + i]
+		if not c then
+			break
+		end
+		list[#list + 1] = ("%s: %s"):format(
+			config.selectCandidateKeys:sub(i, i),
+			modify_candidate(c, state.affix)
+		)
+	end
+	require("skkeleton.popup").open(list)
+end
+
+--- 候補選択中のキー入力
+---@param context skkeleton.Context
+---@param key string
+function M.henkan_input(context, key)
+	local config = require("skkeleton.config").config
+	local common = require("skkeleton.function.common")
+	local state = context.state --[[@as skkeleton.HenkanState]]
+	if state.candidateIndex >= config.showCandidatesCount then
+		local cand_idx = (config.selectCandidateKeys:find(key, 1, true) or 0) - 1
+		if cand_idx >= 0 then
+			if state.candidateIndex + cand_idx < #state.candidates then
+				state.candidateIndex = state.candidateIndex + cand_idx
+				common.kakutei(context)
+			end
+			return
+		end
+	end
+
+	common.kakutei(context)
+	local notation = require("skkeleton.notation")
+	require("skkeleton.keymap").handle_key(context, notation.key_to_notation[key] or key)
+end
+
+--- 接尾辞変換 (">" キー)
+---@param context skkeleton.Context
+function M.suffix(context)
+	if context.state.type ~= "henkan" then
+		return
+	end
+
+	local common = require("skkeleton.function.common")
+	local input_fn = require("skkeleton.function.input")
+	common.kakutei(context)
+	input_fn.henkan_point(context)
+	input_fn.accept_result(context, { ">", "" }, "")
+	context.state.affix = "suffix"
+end
+
+--- テスト用: 再入フラグをリセットする
+function M._reset()
+	henkan_locked = false
+end
+
+return M
