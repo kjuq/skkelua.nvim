@@ -12,6 +12,13 @@ local function completion_config()
 	return require("skkelua.config").config.completion
 end
 
+--- vim.snippet の特殊文字 ($ と \) をエスケープする
+---@param s string
+---@return string
+local function escape_snippet(s)
+	return (s:gsub("[\\%$]", "\\%0"))
+end
+
 --- ひらがな (+ 長音・マーカー) を triggerCharacters として列挙する
 ---@return string[]
 local function trigger_characters()
@@ -93,9 +100,14 @@ local function make_completion_list(params)
 					-- クライアントは typed text (▽かんじ) と filterText を照合する
 					filterText = marker .. midasi,
 					sortText = sort_text,
+					-- Note: PlainText だと word が filterText に fallback した場合に
+					--       newText が適用されない (単なる再挿入になる)。
+					--       Snippet format は確定時に挿入 word を削除して
+					--       newText を展開するため、▽かんじ を候補で置換できる
+					insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
 					textEdit = {
 						range = range,
-						newText = display,
+						newText = escape_snippet(display),
 					},
 					data = { skkelua = true, midasi = midasi, word = word },
 				}

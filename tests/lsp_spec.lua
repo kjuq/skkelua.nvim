@@ -54,6 +54,8 @@ t.test("completion list for henkan input", function()
 	t.assert_true(kanji ~= nil)
 	t.assert_equals("▽かんじ", kanji.filterText)
 	t.assert_equals("漢字", kanji.textEdit.newText)
+	-- 確定時に pre-edit を newText で置換させるため Snippet format を使う
+	t.assert_equals(vim.lsp.protocol.InsertTextFormat.Snippet, kanji.insertTextFormat)
 	-- ▽かんじ (12 bytes) 全体を置換する
 	t.assert_equals({ line = 0, character = 0 }, kanji.textEdit.range.start)
 	t.assert_equals({ line = 0, character = 12 }, kanji.textEdit.range["end"])
