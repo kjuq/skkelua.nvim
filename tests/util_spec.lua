@@ -1,7 +1,7 @@
 -- util.lua のテスト (Lua 版固有の文字列処理・エンコーディング判定)
 
 local t = require("tests.helper")
-local util = require("skkeleton.util")
+local util = require("skkelua.util")
 
 t.test("chars / char_len", function()
 	t.assert_equals({ "a", "b" }, util.chars("ab"))
@@ -56,7 +56,7 @@ t.test("distinct", function()
 end)
 
 t.test("okuri", function()
-	local get_okuri_str = require("skkeleton.okuri").get_okuri_str
+	local get_okuri_str = require("skkelua.okuri").get_okuri_str
 	t.assert_equals("おくr", get_okuri_str("おく", "り"))
 	t.assert_equals("うたがt", get_okuri_str("うたが", "っ"))
 	t.assert_equals("うたがt", get_okuri_str("うたが", "って"))
@@ -64,7 +64,7 @@ t.test("okuri", function()
 end)
 
 t.test("candidate modify", function()
-	local modify = require("skkeleton.candidate").modify_candidate
+	local modify = require("skkelua.candidate").modify_candidate
 	t.assert_equals("注釈", modify("注釈;これは注釈です"))
 	t.assert_equals("接頭", modify("接頭>", "prefix"))
 	t.assert_equals("接尾", modify(">接尾", "suffix"))

@@ -9,7 +9,7 @@ end
 
 local function with_buffer(fn)
 	vim.cmd.enew({ bang = true })
-	vim.cmd("inoremap <buffer> J <Cmd>lua require('skkeleton').handle('enable', {})<CR>")
+	vim.cmd("inoremap <buffer> J <Cmd>lua require('skkelua').handle('enable', {})<CR>")
 	local ok, err = pcall(fn)
 	vim.cmd("stopinsert")
 	vim.cmd.bwipeout({ bang = true })
@@ -19,7 +19,7 @@ local function with_buffer(fn)
 end
 
 t.test("henkan pipeline on real buffer", function()
-	local lib = require("skkeleton.store").get_library()
+	local lib = require("skkelua.store").get_library()
 	lib:register_henkan_result("okurinasi", "かんじ", "漢字")
 
 	with_buffer(function()
@@ -30,7 +30,7 @@ t.test("henkan pipeline on real buffer", function()
 end)
 
 t.test("okuriari henkan on real buffer", function()
-	local lib = require("skkeleton.store").get_library()
+	local lib = require("skkelua.store").get_library()
 	lib:register_henkan_result("okuriari", "おくr", "送")
 
 	with_buffer(function()
@@ -96,7 +96,7 @@ t.test("buffer local maps are restored after disable", function()
 		feed("iJnihongo")
 		t.assert_equals("にほんご", vim.fn.getline(1))
 		-- disable で元のマッピングに戻る
-		require("skkeleton").disable_impl()
+		require("skkelua").disable_impl()
 		-- Note: feedkeys の 'x' フラグは実行後 insert モードを抜けるため
 		--       append で入り直す
 		feed("aa")

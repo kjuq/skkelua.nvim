@@ -3,7 +3,7 @@
 local t = require("tests.helper")
 
 local function new_context()
-	return require("skkeleton.context").new()
+	return require("skkelua.context").new()
 end
 
 t.test("kana input", function()
@@ -63,7 +63,7 @@ t.test("upper case input", function()
 end)
 
 t.test("upper case input with lowercaseMap", function()
-	local config = require("skkeleton.config").config
+	local config = require("skkelua.config").config
 	config.lowercaseMap = { ["+"] = "a" }
 	local context = new_context()
 	t.dispatch(context, "+")
@@ -71,8 +71,8 @@ t.test("upper case input with lowercaseMap", function()
 end)
 
 t.test("delete char", function()
-	local util = require("skkeleton.util")
-	local delete_char = require("skkeleton.function.input").delete_char
+	local util = require("skkelua.util")
+	local delete_char = require("skkelua.function.input").delete_char
 	local context = new_context()
 	t.dispatch(context, ";ya;tt")
 	local result = context:to_string()
@@ -88,7 +88,7 @@ t.test("undo point", function()
 		local context = new_context()
 		context.vimMode = "i"
 		t.dispatch(context, "a")
-		require("skkeleton.function.input").henkan_point(context)
+		require("skkelua.function.input").henkan_point(context)
 		t.assert_equals("あ\7u▽", context.preEdit:output(context:to_string()))
 	end
 	-- not emit at cmdline
@@ -96,16 +96,16 @@ t.test("undo point", function()
 		local context = new_context()
 		context.vimMode = "c"
 		t.dispatch(context, "a")
-		require("skkeleton.function.input").henkan_point(context)
+		require("skkelua.function.input").henkan_point(context)
 		t.assert_equals("あ▽", context.preEdit:output(context:to_string()))
 	end
 end)
 
 t.test("katakana input", function()
 	t.clean_dictionary_config()
-	local katakana = require("skkeleton.function.mode").katakana
-	local hankatakana = require("skkeleton.function.mode").hankatakana
-	local kakutei = require("skkeleton.function.common").kakutei
+	local katakana = require("skkelua.function.mode").katakana
+	local hankatakana = require("skkelua.function.mode").hankatakana
+	local kakutei = require("skkelua.function.common").kakutei
 	local context = new_context()
 
 	-- change to katakana mode
@@ -144,9 +144,9 @@ end)
 
 t.test("hankatakana input", function()
 	t.clean_dictionary_config()
-	local katakana = require("skkeleton.function.mode").katakana
-	local hankatakana = require("skkeleton.function.mode").hankatakana
-	local kakutei = require("skkeleton.function.common").kakutei
+	local katakana = require("skkelua.function.mode").katakana
+	local hankatakana = require("skkelua.function.mode").hankatakana
+	local kakutei = require("skkelua.function.common").kakutei
 	local context = new_context()
 
 	-- change to hankatakana mode
@@ -198,7 +198,7 @@ t.test("new line (integration)", function()
 	t.clean_dictionary_config()
 	vim.cmd.enew({ bang = true })
 	vim.bo.autoindent = true
-	vim.cmd("inoremap J <Cmd>lua require('skkeleton').handle('enable', {})<CR>")
+	vim.cmd("inoremap J <Cmd>lua require('skkelua').handle('enable', {})<CR>")
 	vim.fn.feedkeys("iJ\thoge\13hoge;hoge\13", "tx")
 	t.assert_equals({ "\tほげ", "\tほげほげ", "" }, vim.fn.getline(1, "$"))
 	vim.cmd("iunmap J")

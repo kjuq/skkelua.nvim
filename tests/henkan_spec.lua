@@ -4,7 +4,7 @@ local t = require("tests.helper")
 
 local function setup_library()
 	t.clean_dictionary_config()
-	local lib = require("skkeleton.store").get_library()
+	local lib = require("skkelua.store").get_library()
 	lib:register_henkan_result("okurinasi", "へんかん", "返還")
 	lib:register_henkan_result("okurinasi", "へんかん", "変換")
 	lib:register_henkan_result("okuriari", "おくr", "送")
@@ -15,7 +15,7 @@ local function setup_library()
 end
 
 local function new_context()
-	return require("skkeleton.context").new()
+	return require("skkelua.context").new()
 end
 
 t.test("okurinasi henkan", function()
@@ -62,7 +62,7 @@ end)
 
 t.test("fallback to kanaInput in henkanFirst", function()
 	setup_library()
-	local henkan_first = require("skkeleton.function.henkan").henkan_first
+	local henkan_first = require("skkelua.function.henkan").henkan_first
 	local context = new_context()
 	context.state.table = { { " ", { "", "space" } } }
 	t.dispatch(context, " ")

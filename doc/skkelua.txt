@@ -1,0 +1,295 @@
+*skkelua.txt*	Neovim 用 SKK 日本語入力環境 (skkeleton の pure Lua 実装)
+
+Author:  kuuote (オリジナル denops 版 skkeleton)
+License: zlib license
+
+==============================================================================
+CONTENTS                                                    *skkelua-contents*
+
+INTRODUCTION                                            |skkelua-introduction|
+INSTALL                                                      |skkelua-install|
+INTERFACE                                                  |skkelua-interface|
+  MAPPINGS                                                  |skkelua-mappings|
+  LUA API                                                    |skkelua-lua-api|
+  FUNCTIONS                                                |skkelua-functions|
+  AUTOCMDS                                                  |skkelua-autocmds|
+  VARIABLES                                                |skkelua-variables|
+OPTIONS                                                      |skkelua-options|
+SOURCES                                                      |skkelua-sources|
+KANATABLE                                                  |skkelua-kanatable|
+COMPATIBILITY                                          |skkelua-compatibility|
+DIFFERENCES                                              |skkelua-differences|
+
+==============================================================================
+INTRODUCTION                                            *skkelua-introduction*
+
+skkelua は SKK 日本語入力環境を Neovim 上に提供するプラグインです。
+denops 版 skkeleton (https://github.com/vim-skk/skkeleton) の pure Lua 移植で、
+Deno や denops.vim を必要とせず Neovim 0.10+ 単体で動作します。
+
+==============================================================================
+INSTALL                                                      *skkelua-install*
+
+Neovim 0.10 以降が必要です。プラグインマネージャで導入した後、
+辞書とトグルキーを設定してください。
+>lua
+	require("skkelua").config({
+		globalDictionaries = { "~/.skk/SKK-JISYO.L" },
+	})
+	vim.keymap.set({ "i", "c" }, "<C-j>", "<Plug>(skkelua-toggle)")
+<
+==============================================================================
+INTERFACE                                                  *skkelua-interface*
+
+------------------------------------------------------------------------------
+MAPPINGS                                                    *skkelua-mappings*
+
+<Plug>(skkelua-enable)                                *<Plug>(skkelua-enable)*
+	skkelua を有効化します。insert/cmdline/terminal モードで使えます。
+
+<Plug>(skkelua-disable)                              *<Plug>(skkelua-disable)*
+	skkelua を無効化します。
+
+<Plug>(skkelua-toggle)                                *<Plug>(skkelua-toggle)*
+	skkelua の有効・無効を切り替えます。
+
+Note: denops 版からの移行用に <Plug>(skkeleton-enable/disable/toggle) も
+互換エイリアスとして同じ動作で定義されます。
+
+------------------------------------------------------------------------------
+LUA API                                                      *skkelua-lua-api*
+
+require("skkelua").config({opts})                           *skkelua.config()*
+	設定を反映します。指定できるキーは |skkelua-options| を参照。
+
+require("skkelua").setup({opts})                             *skkelua.setup()*
+	config() のエイリアスです。
+
+require("skkelua").register_keymap({state}, {key}, {func_name})
+                                                   *skkelua.register_keymap()*
+	入力ステート ("input" | "henkan") のキーマップを登録します。
+	{func_name} に空文字などの falsy な値を渡すと削除します。
+>lua
+	require("skkelua").register_keymap("henkan", "<BS>", "henkanBackward")
+<
+require("skkelua").register_kanatable({name}, {table}, {create})
+                                                *skkelua.register_kanatable()*
+	かな入力テーブルを登録・編集します。|skkelua-kanatable| 参照。
+
+require("skkelua").register_kanatable_file({name}, {path}, {encoding}, {create})
+                                           *skkelua.register_kanatable_file()*
+	"from,to" 形式のかなテーブルファイルを読み込みます。
+
+require("skkelua").initialize()                         *skkelua.initialize()*
+	初期化 (辞書ロード含む) を行います。呼ばなくても初回の有効化時に
+	自動で初期化されますが、起動後に呼んでおくと初回有効化が速くなります。
+
+require("skkelua").mode()                                     *skkelua.mode()*
+	現在の入力モードを返します。無効時は "" を返します。
+	値: "hira" / "kata" / "hankata" / "zenkaku" / "abbrev" / ""
+
+require("skkelua").is_enabled()                         *skkelua.is_enabled()*
+	skkelua が有効かどうかを返します。
+
+require("skkelua").handle({func}, {opts})                   *skkelua.handle()*
+	低レベルなハンドラ呼び出しです。{func} は "enable" / "disable" /
+	"toggle" / "handleKey"。{opts} には key (文字列または配列)、
+	function (機能関数名)、expr (真ならキー列を返す) を渡せます。
+
+補完プラグイン連携用 API ~
+                                                  *skkelua-completion-api*
+require("skkelua").get_pre_edit()
+	現在のプリエディット文字列を返します。
+require("skkelua").get_pre_edit_length()
+	プリエディットの文字数を返します。
+require("skkelua").get_prefix()
+	現在の変換入力 (かな) を返します。
+require("skkelua").get_candidates({kana}, {type})
+	見出しの変換候補を返します。
+require("skkelua").get_completion_result()
+	現在の入力に対する補完候補 ([かな, 候補リスト] の配列) を返します。
+require("skkelua").get_ranks()
+	ユーザー辞書由来の候補ランク ([候補, ランク] の配列) を返します。
+require("skkelua").complete_callback({midasi}, {word}, {type})
+	補完で確定した結果をユーザー辞書に登録します。
+
+------------------------------------------------------------------------------
+FUNCTIONS                                                  *skkelua-functions*
+
+denops 版 skkeleton との互換レイヤーとして以下の Vim script 関数を提供します。
+同じシグネチャで、内部で Lua API に委譲します。
+
+	skkeleton#config({dict})
+	skkeleton#register_keymap({state}, {key}, {func_name})
+	skkeleton#register_kanatable({name}, {table} [, {create}])
+	skkeleton#register_kanatable_file({name}, {path} [, {enc} [, {create}]])
+	skkeleton#initialize()
+	skkeleton#mode()
+	skkeleton#is_enabled()
+	skkeleton#handle({func}, {opts})
+	skkeleton#get_config()
+	skkeleton#disable()
+	skkeleton#get_default_mapped_keys()
+	skkeleton#dangerously_clear_buffer_local_mappings()
+
+------------------------------------------------------------------------------
+AUTOCMDS                                                    *skkelua-autocmds*
+
+以下の |User| autocmd が発火します。パターン名は skkeleton エコシステム
+(skkeleton_indicator.nvim など) との互換のため skkeleton- を使います。
+
+	skkeleton-initialize-pre / skkeleton-initialize-post
+		初期化の前後。
+	skkeleton-enable-pre / skkeleton-enable-post
+		有効化の前後。
+	skkeleton-disable-pre / skkeleton-disable-post
+		無効化の前後。
+	skkeleton-mode-changed
+		入力モード変更時。|g:skkeleton#mode| を参照できます。
+	skkeleton-handled
+		キー処理の完了後。
+
+------------------------------------------------------------------------------
+VARIABLES                                                  *skkelua-variables*
+
+変数名は skkeleton エコシステムとの互換のため skkeleton# を使います。
+
+g:skkeleton#enabled                                    *g:skkeleton#enabled*
+	skkelua が有効かどうか (参照用)。
+
+g:skkeleton#mode                                          *g:skkeleton#mode*
+	現在の入力モード (参照用)。
+
+g:skkeleton#state                                        *g:skkeleton#state*
+	直近のキー処理後の内部状態。phase ("input" / "input:okurinasi" /
+	"input:okuriari" / "henkan" / "escape") と henkanFeed を持ちます。
+
+g:skkeleton#mapped_keys                            *g:skkeleton#mapped_keys*
+	有効化時にマップするキーのリスト。プラグイン読み込み前に設定すると
+	デフォルトに追加されます。
+
+==============================================================================
+OPTIONS                                                      *skkelua-options*
+
+config() に渡せる主なオプション (括弧内はデフォルト値):
+
+acceptIllegalResult (false)
+	かなに変換できなかった入力をそのまま残すかどうか。
+completionRankFile ("")
+	補完候補ランクの保存先ファイル。
+databasePath ("")
+	(非対応) denops 版の Deno KV データベースパス。指定しても無視されます。
+debug (false)
+	デバッグログを出力します。
+eggLikeNewline (false)
+	変換中の <CR> で確定のみ行い改行しないかどうか。
+globalDictionaries ([])
+	グローバル辞書のリスト。要素はパス文字列、または
+	{パス, エンコーディング} のペア。エンコーディング省略時は自動判定。
+globalKanaTableFiles ([])
+	かなテーブルファイルのリスト。
+immediatelyCancel (true)
+	キャンセル時に一気に未入力状態へ戻るかどうか。
+immediatelyDictionaryRW (true)
+	ユーザー辞書を変換のたびに読み書きするかどうか。
+immediatelyOkuriConvert (true)
+	送り仮名が「っ」の段階で即変換するかどうか。
+kanaTable ("rom")
+	使用するかなテーブル名。
+keepMode (false)
+	無効化しても入力モードを保持するかどうか。
+keepState (false)
+	insert モードを抜けても skkelua の状態を保持するかどうか。
+lowercaseMap ({})
+	大文字入力時の変換先カスタマイズ。
+markerHenkan ("▽")
+	変換入力中のマーカー。
+markerHenkanSelect ("▼")
+	候補選択中のマーカー。
+registerConvertResult (false)
+	カタカナ変換等の結果をユーザー辞書に登録するかどうか。
+selectCandidateKeys ("asdfjkl")
+	候補選択ポップアップのキー (7 文字)。
+setUndoPoint (true)
+	変換ポイントで undo を切るかどうか。
+showCandidatesCount (4)
+	インライン候補表示の個数。超えるとポップアップ表示になります。
+skkServerHost ("127.0.0.1") / skkServerPort (1178)
+skkServerReqEnc ("euc-jp") / skkServerResEnc ("euc-jp")
+	skkserv の接続設定。
+sources (["skk_dictionary"])
+	辞書ソースのリスト。|skkelua-sources| 参照。
+userDictionary ("~/.skkeleton")
+	ユーザー辞書のパス。デフォルトは denops 版と共通のため、
+	既存のユーザー辞書をそのまま引き継げます。
+
+==============================================================================
+SOURCES                                                      *skkelua-sources*
+
+sources オプションに指定できる辞書ソース:
+
+skk_dictionary
+	globalDictionaries で指定した SKK 形式辞書 (テキスト/JSON/msgpack)。
+user_dictionary
+	ユーザー辞書のみを使います。
+skk_server
+	skkserv に接続します (同期 TCP、タイムアウト 1 秒)。
+google_japanese_input
+	Google 日本語入力 API を使います。curl が必要です。
+
+==============================================================================
+KANATABLE                                                  *skkelua-kanatable*
+
+register_kanatable() でかな入力ルールを編集できます。
+>lua
+	require("skkelua").register_kanatable("rom", {
+		["jj"] = "escape",           -- 機能名
+		["z,"] = { "―", "" },        -- {確定文字列, 残りフィード}
+		["xn"] = false,              -- 削除
+	})
+<
+指定できる機能名: kakutei, newline, cancel, purgeCandidate, disable, escape,
+henkanFirst, henkanForward, henkanBackward, henkanInput, suffix, kakuteiFeed,
+henkanPoint, deleteChar, prefix, abbrev, hirakana, katakana, hankatakana,
+zenkaku
+
+変換キーの変更例 ~
+	Space を変換に使わず、通常の空白として入力させる:
+>lua
+	require("skkelua").register_kanatable("rom", {
+		[" "] = { " ", "" },
+	})
+	-- 代わりに <C-n> で変換を開始・送りする
+	require("skkelua").register_keymap("input", "<C-n>", "henkanFirst")
+	require("skkelua").register_keymap("henkan", "<C-n>", "henkanForward")
+<
+==============================================================================
+COMPATIBILITY                                          *skkelua-compatibility*
+
+denops 版 skkeleton からの移行と周辺プラグイン連携のため、以下の
+インターフェイスは skkeleton の名前をそのまま使います。
+
+- |skkelua-functions| に列挙した skkeleton#* 関数
+- |skkelua-variables| に列挙した g:skkeleton#* 変数
+- |skkelua-autocmds| に列挙した User skkeleton-* イベント
+- <Plug>(skkeleton-enable/disable/toggle) マッピング
+
+これにより skkeleton_indicator.nvim などの周辺プラグインと、denops 版向けの
+既存設定の多くがそのまま動作します。denops 版と同時にインストールした場合の
+動作は保証しません (どちらか一方だけを有効にしてください)。
+
+==============================================================================
+DIFFERENCES                                              *skkelua-differences*
+
+denops 版との違い:
+
+- Neovim 0.10+ 専用です (Vim では動作しません)。
+- 辞書ロードは同期です。SKK-JISYO.L 規模で数百 ms かかるため、
+  気になる場合は起動後に initialize() を呼んで事前ロードしてください。
+- YAML 辞書、Deno KV データベース (updateDatabase) は非対応です。
+- ddc.vim 用ソースは同梱しません。|skkelua-completion-api| を使って
+  補完ソースを実装できます。
+- skkserv への問い合わせは同期実行で、応答が無い場合 1 秒でタイムアウト
+  します。
+
+vim:tw=78:ts=8:noet:ft=help:norl:

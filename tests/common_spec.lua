@@ -4,7 +4,7 @@ local t = require("tests.helper")
 
 local function setup_library()
 	t.clean_dictionary_config()
-	local lib = require("skkeleton.store").get_library()
+	local lib = require("skkelua.store").get_library()
 	lib:register_henkan_result("okurinasi", "あ", "い")
 	lib:register_henkan_result("okurinasi", "ちゅうしゃく", "注釈;これは注釈です")
 	return lib
@@ -12,9 +12,9 @@ end
 
 t.test("input cancel", function()
 	setup_library()
-	local config = require("skkeleton.config").config
-	local cancel = require("skkeleton.function.common").cancel
-	local context = require("skkeleton.context").new()
+	local config = require("skkelua.config").config
+	local cancel = require("skkelua.function.common").cancel
+	local context = require("skkelua.context").new()
 	t.dispatch(context, "A")
 	cancel(context)
 	t.assert_equals("", context:to_string())
@@ -32,8 +32,8 @@ end)
 
 t.test("annotation", function()
 	local lib = setup_library()
-	local kakutei = require("skkeleton.function.common").kakutei
-	local context = require("skkeleton.context").new()
+	local kakutei = require("skkelua.function.common").kakutei
+	local context = require("skkelua.context").new()
 	t.dispatch(context, ";tyuusyaku ")
 	kakutei(context)
 	t.assert_equals("注釈", context.preEdit:output(""))
@@ -45,9 +45,9 @@ end)
 
 t.test("turn off mode when kakutei with empty input", function()
 	setup_library()
-	local katakana = require("skkeleton.function.mode").katakana
-	local kakutei_key = require("skkeleton.function.common").kakutei_key
-	local context = require("skkeleton.context").new()
+	local katakana = require("skkelua.function.mode").katakana
+	local kakutei_key = require("skkelua.function.common").kakutei_key
+	local context = require("skkelua.context").new()
 	katakana(context)
 	t.dispatch(context, "k")
 	kakutei_key(context)

@@ -1,7 +1,7 @@
--- ローカルの skkeleton-lua を普段の設定と切り離して試すための最小設定
+-- ローカルの skkelua を普段の設定と切り離して試すための最小設定
 --
 -- 使い方:
---   nvim -u ~/codes/skkeleton-lua/tests/minimal_init.lua
+--   nvim -u ~/codes/skkeleton-lua/skkelua/tests/minimal_init.lua
 --
 -- insert モードで <C-j> でオン・オフ。ステータスラインに現在のモードが出る。
 -- ユーザー辞書はテスト用に /tmp に書くので、普段の辞書は汚れない。
@@ -19,12 +19,12 @@ for _, name in ipairs({ "SKK-JISYO.L", "SKK-JISYO.jinmei" }) do
 	end
 end
 
-require("skkeleton").config({
+require("skkelua").config({
 	globalDictionaries = dicts,
-	userDictionary = "/tmp/skkeleton_lua_test_jisyo",
+	userDictionary = "/tmp/skkelua_test_jisyo",
 })
 
-vim.keymap.set({ "i", "c" }, "<C-j>", "<Plug>(skkeleton-toggle)")
+vim.keymap.set({ "i", "c" }, "<C-j>", "<Plug>(skkelua-toggle)")
 
 -- モード表示
 vim.opt.laststatus = 2
@@ -44,7 +44,7 @@ vim.api.nvim_create_autocmd("UIEnter", {
 	once = true,
 	callback = function()
 		local start = vim.uv.hrtime()
-		require("skkeleton").initialize()
-		vim.notify(("skkeleton-lua: dictionaries loaded in %.0fms"):format((vim.uv.hrtime() - start) / 1e6))
+		require("skkelua").initialize()
+		vim.notify(("skkelua: dictionaries loaded in %.0fms"):format((vim.uv.hrtime() - start) / 1e6))
 	end,
 })

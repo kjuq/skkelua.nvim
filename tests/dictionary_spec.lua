@@ -2,10 +2,10 @@
 
 local t = require("tests.helper")
 
-local Library = require("skkeleton.dictionary").Library
-local wrap_dictionary = require("skkeleton.dictionary").wrap_dictionary
-local SkkDictionary = require("skkeleton.sources.skk_dictionary").Dictionary
-local UserDictionary = require("skkeleton.sources.user_dictionary").Dictionary
+local Library = require("skkelua.dictionary").Library
+local wrap_dictionary = require("skkelua.dictionary").wrap_dictionary
+local SkkDictionary = require("skkelua.sources.skk_dictionary").Dictionary
+local UserDictionary = require("skkelua.sources.user_dictionary").Dictionary
 
 t.test("load new JisyoJson", function()
 	local dic = SkkDictionary.new()
@@ -173,7 +173,7 @@ t.test("getRanks", function()
 end)
 
 t.test("number conversion internals", function()
-	local convert = require("skkeleton.dictionary")._convert_number
+	local convert = require("skkelua.dictionary")._convert_number
 	t.assert_equals("１０１番", convert("#1番", "101ばん"))
 	t.assert_equals("一〇一番", convert("#2番", "101ばん"))
 	t.assert_equals("百一番", convert("#3番", "101ばん"))

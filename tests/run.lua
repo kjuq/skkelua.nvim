@@ -8,7 +8,7 @@ vim.opt.runtimepath:prepend(root)
 package.path = ("%s/?.lua;%s"):format(root, package.path)
 
 -- -l 起動では plugin/ が自動ロードされないため明示的にロードする
-vim.cmd("runtime! plugin/skkeleton.lua")
+vim.cmd("runtime! plugin/skkelua.lua")
 
 local specs = {}
 for name in vim.fs.dir(tests_dir) do

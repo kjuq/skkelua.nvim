@@ -5,38 +5,38 @@ local root = vim.fs.dirname(vim.fs.dirname(vim.fn.fnamemodify(debug.getinfo(1, "
 vim.opt.runtimepath:prepend(root)
 
 local modules = {
-	"skkeleton.util",
-	"skkeleton.notation",
-	"skkeleton.kana.rom_hira",
-	"skkeleton.kana.rom_zen",
-	"skkeleton.kana.hira_kata",
-	"skkeleton.kana.hira_hankata",
-	"skkeleton.config",
-	"skkeleton.store",
-	"skkeleton.kana",
-	"skkeleton.candidate",
-	"skkeleton.okuri",
-	"skkeleton.preedit",
-	"skkeleton.state",
-	"skkeleton.context",
-	"skkeleton.mode",
-	"skkeleton.function",
-	"skkeleton.function.input",
-	"skkeleton.function.common",
-	"skkeleton.function.henkan",
-	"skkeleton.function.mode",
-	"skkeleton.function.disable",
-	"skkeleton.function.dictionary",
-	"skkeleton.keymap",
-	"skkeleton.dictionary",
-	"skkeleton.sources.skk_dictionary",
-	"skkeleton.sources.user_dictionary",
-	"skkeleton.sources.skk_server",
-	"skkeleton.sources.google_japanese_input",
-	"skkeleton.popup",
-	"skkeleton.map",
-	"skkeleton.option",
-	"skkeleton",
+	"skkelua.util",
+	"skkelua.notation",
+	"skkelua.kana.rom_hira",
+	"skkelua.kana.rom_zen",
+	"skkelua.kana.hira_kata",
+	"skkelua.kana.hira_hankata",
+	"skkelua.config",
+	"skkelua.store",
+	"skkelua.kana",
+	"skkelua.candidate",
+	"skkelua.okuri",
+	"skkelua.preedit",
+	"skkelua.state",
+	"skkelua.context",
+	"skkelua.mode",
+	"skkelua.function",
+	"skkelua.function.input",
+	"skkelua.function.common",
+	"skkelua.function.henkan",
+	"skkelua.function.mode",
+	"skkelua.function.disable",
+	"skkelua.function.dictionary",
+	"skkelua.keymap",
+	"skkelua.dictionary",
+	"skkelua.sources.skk_dictionary",
+	"skkelua.sources.user_dictionary",
+	"skkelua.sources.skk_server",
+	"skkelua.sources.google_japanese_input",
+	"skkelua.popup",
+	"skkelua.map",
+	"skkelua.option",
+	"skkelua",
 }
 
 local failed = 0
@@ -62,24 +62,24 @@ local function try(label, fn)
 end
 
 try("get_kana_table", function()
-	local t = require("skkeleton.kana").get_kana_table("rom")
+	local t = require("skkelua.kana").get_kana_table("rom")
 	assert(#t > 200, "rom table too small")
 end)
 
 try("kana input roundtrip", function()
-	local context = require("skkeleton.context").new()
-	local input = require("skkeleton.function.input")
+	local context = require("skkelua.context").new()
+	local input = require("skkelua.function.input")
 	input.kana_input(context, "k")
 	input.kana_input(context, "a")
 	assert(context.preEdit:output("") == "か", "expected か")
 end)
 
 try("hira_to_kata", function()
-	assert(require("skkeleton.kana.hira_kata").hira_to_kata("あいう") == "アイウ")
+	assert(require("skkelua.kana.hira_kata").hira_to_kata("あいう") == "アイウ")
 end)
 
 try("char_sub", function()
-	local util = require("skkeleton.util")
+	local util = require("skkelua.util")
 	assert(util.char_sub("あいう", 1, -2) == "あい")
 	assert(util.char_sub("あいう", -1) == "う")
 	assert(util.char_sub("abc", 2) == "bc")

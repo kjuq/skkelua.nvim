@@ -4,7 +4,7 @@ local t = require("tests.helper")
 
 t.test("customize kanatable", function()
 	t.clean_dictionary_config()
-	local kana = require("skkeleton.kana")
+	local kana = require("skkelua.kana")
 	kana.register_kana_table("rom", {
 		["jj"] = "newline",
 		["z,"] = { "―", "" },
@@ -15,7 +15,7 @@ t.test("customize kanatable", function()
 	kana.register_kana_table("rom", {
 		["!"] = false,
 	})
-	local context = require("skkeleton.context").new()
+	local context = require("skkelua.context").new()
 	t.dispatch(context, "jj")
 	t.assert_equals("\n", context.preEdit:output(""))
 	t.dispatch(context, "z,")
@@ -28,28 +28,28 @@ end)
 
 t.test("create kanatable", function()
 	t.clean_dictionary_config()
-	local kana = require("skkeleton.kana")
-	local config = require("skkeleton.config").config
+	local kana = require("skkelua.kana")
+	local config = require("skkelua.config").config
 	kana.register_kana_table("test", {
 		a = { "hoge", "" },
 	}, true)
 	config.kanaTable = "test"
-	local skkeleton = require("skkeleton")
-	skkeleton._handle_request("enable", {}, {
+	local skkelua = require("skkelua")
+	skkelua._handle_request("enable", {}, {
 		mode = "",
 		prevInput = "",
 		completeInfo = {},
 		completeType = "",
 	})
-	local context = require("skkeleton.store").get_context()
+	local context = require("skkelua.store").get_context()
 	t.dispatch(context, "a")
 	t.assert_equals("hoge", context.preEdit:output(""))
-	skkeleton.disable_impl()
+	skkelua.disable_impl()
 end)
 
 t.test("kana table file", function()
 	t.clean_dictionary_config()
-	local kana = require("skkeleton.kana")
+	local kana = require("skkelua.kana")
 	local tmp = t.tempname()
 	local f = assert(io.open(tmp, "wb"))
 	f:write("# comment\nka,か\nxx,っ\n\n")

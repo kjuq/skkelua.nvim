@@ -42,9 +42,9 @@ end
 
 local default_config = nil
 
---- 各テストの前に skkeleton の内部状態をリセットする
+--- 各テストの前に skkelua の内部状態をリセットする
 function M.reset()
-	local config_mod = require("skkeleton.config")
+	local config_mod = require("skkelua.config")
 	if not default_config then
 		default_config = vim.deepcopy(config_mod.config)
 	end
@@ -54,9 +54,9 @@ function M.reset()
 	for k, v in pairs(vim.deepcopy(default_config)) do
 		config_mod.config[k] = v
 	end
-	require("skkeleton.kana")._reset()
-	require("skkeleton")._reset_for_test()
-	require("skkeleton.store").variables.lastMode = "hira"
+	require("skkelua.kana")._reset()
+	require("skkelua")._reset_for_test()
+	require("skkelua.store").variables.lastMode = "hira"
 	vim.g["skkeleton#enabled"] = false
 	vim.g["skkeleton#mode"] = ""
 	-- TS 版テストハーネスの dispatcher.initialize(true) に相当:
@@ -64,12 +64,12 @@ function M.reset()
 	-- (init() が library initializer を再設定するため、テスト中の register が
 	--  init() のタイミングで破棄されないようにする)
 	M.clean_dictionary_config()
-	require("skkeleton").initialize()
+	require("skkelua").initialize()
 end
 
 --- ユーザー辞書を切り離す (グローバル設定汚染防止)
 function M.clean_dictionary_config()
-	local config = require("skkeleton.config").config
+	local config = require("skkelua.config").config
 	config.globalDictionaries = {}
 	config.userDictionary = ""
 	config.completionRankFile = ""
@@ -89,13 +89,13 @@ function M.tempname()
 end
 
 --- function/testutil.ts の dispatch 相当
----@param context skkeleton.Context
+---@param context skkelua.Context
 ---@param keys string
 function M.dispatch(context, keys)
-	local util = require("skkeleton.util")
-	local input = require("skkeleton.function.input")
-	local henkan = require("skkeleton.function.henkan")
-	local common = require("skkeleton.function.common")
+	local util = require("skkelua.util")
+	local input = require("skkelua.function.input")
+	local henkan = require("skkelua.function.henkan")
+	local common = require("skkelua.function.common")
 	for _, key in ipairs(util.chars(keys)) do
 		if context.state.type == "input" then
 			if key == " " then

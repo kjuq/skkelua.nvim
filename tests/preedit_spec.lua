@@ -1,7 +1,7 @@
 -- preedit_test.ts の移植
 
 local t = require("tests.helper")
-local PreEdit = require("skkeleton.preedit").PreEdit
+local PreEdit = require("skkelua.preedit").PreEdit
 
 t.test("preedit test", function()
 	local pre_edit = PreEdit.new()
