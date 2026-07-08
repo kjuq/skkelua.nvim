@@ -59,7 +59,10 @@ t.test("completion list for henkan input", function()
 	-- ▽かんじ (12 bytes) 全体を置換する
 	t.assert_equals({ line = 0, character = 0 }, kanji.textEdit.range.start)
 	t.assert_equals({ line = 0, character = 12 }, kanji.textEdit.range["end"])
-	t.assert_equals({ skkelua = true, midasi = "かんじ", word = "漢字" }, kanji.data)
+	t.assert_equals(
+		{ skkelua = true, midasi = "かんじ", word = "漢字", type = "okurinasi" },
+		kanji.data
+	)
 
 	-- 前方一致見出し (かんじょう) の候補も出る
 	local kanjou = by_label["感情"]
@@ -152,6 +155,97 @@ t.test("autotrigger sends completion request", function()
 	if not ok then
 		error(err, 0)
 	end
+end)
+
+--- 任意のキー列で変換入力状態を作り、バッファへ pre-edit を置く
+local function setup_state(keys)
+	local skkelua = require("skkelua")
+	for _, k in ipairs(keys) do
+		skkelua._handle_request("handleKey", { key = { k } }, {
+			mode = "",
+			prevInput = require("skkelua.store").get_context():to_string(),
+			completeInfo = {},
+			completeType = "",
+		})
+	end
+	local pre_edit = skkelua.get_pre_edit()
+	vim.cmd.enew({ bang = true })
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, { pre_edit })
+	vim.api.nvim_win_set_cursor(0, { 1, #pre_edit })
+	return pre_edit, { position = { line = 0, character = #pre_edit } }
+end
+
+t.test("completion during okuriari input", function()
+	local skkelua = require("skkelua")
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okuriari", "おくr", "送")
+	lib:register_henkan_result("okuriari", "おくr", "遅")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- ▽おく*r (送りのローマ字だけがある状態)
+	local pre_edit, params = setup_state({ "O", "k", "u", "R" })
+	t.assert_equals("▽おく*r", pre_edit)
+	t.assert_equals("input:okuriari", skkelua.phase())
+
+	local list = require("skkelua.lsp")._make_completion_list(params)
+	t.assert_true(#list.items > 0, "okuriari candidates should be present")
+
+	local by_label = {}
+	for _, item in ipairs(list.items) do
+		by_label[item.label] = item
+	end
+	-- 語幹 + ありうる送り仮名の完成形が並ぶ
+	t.assert_true(by_label["送り"] ~= nil)
+	t.assert_true(by_label["送る"] ~= nil)
+	t.assert_true(by_label["遅れ"] ~= nil)
+	-- 完成しない送り (っ を作る rr など) は含まれない
+	t.assert_equals(nil, by_label["送っ"])
+
+	local okuri = by_label["送り"]
+	t.assert_equals("▽おく*r", okuri.filterText)
+	t.assert_equals("送り", okuri.textEdit.newText)
+	t.assert_equals("おくr", okuri.detail)
+	t.assert_equals(
+		{ skkelua = true, midasi = "おくr", word = "送", type = "okuriari" },
+		okuri.data
+	)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("okuriari completion with confirmed sokuon", function()
+	local skkelua = require("skkelua")
+	local config = require("skkelua.config").config
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okuriari", "うたがt", "疑")
+	config.immediatelyOkuriConvert = false
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- ▽うたが*っt (okuriFeed=っ が確定済みで feed=t が残る状態)
+	local pre_edit, params = setup_state({ "U", "t", "a", "g", "a", "T", "t" })
+	t.assert_equals("▽うたが*っt", pre_edit)
+
+	local list = require("skkelua.lsp")._make_completion_list(params)
+	local by_label = {}
+	for _, item in ipairs(list.items) do
+		by_label[item.label] = item
+	end
+	t.assert_true(by_label["疑った"] ~= nil)
+	t.assert_true(by_label["疑って"] ~= nil)
+	t.assert_equals("うたがt", by_label["疑った"].data.midasi)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("okuriari candidate registers with okuriari type", function()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+	-- CompleteDone 相当 (data.type = okuriari)
+	skkelua.complete_callback("はしr", "走", "okuriari")
+	local lib = require("skkelua.store").get_library()
+	t.assert_equals({ "走" }, lib:get_henkan_result("okuriari", "はしr"))
+	t.assert_equals({}, lib:get_henkan_result("okurinasi", "はしr"))
 end)
 
 t.test("complete_callback registers the selected candidate", function()

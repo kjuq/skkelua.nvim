@@ -32,13 +32,91 @@ local function trigger_characters()
 	return chars
 end
 
+---@class skkelua.LspCandidate
+---@field word string 辞書上の候補原文 (注釈付き)
+---@field midasi string 辞書の見出し
+---@field okuri string 送り仮名 (送りなしは "")
+---@field type skkelua.HenkanType
+
+--- 送りなし変換入力 (▽かんじ) の候補: 見出しの前方一致検索
+---@return skkelua.LspCandidate[]
+local function okurinasi_candidates()
+	local skkelua = require("skkelua")
+	local result = {}
+	for _, entry in ipairs(skkelua.get_completion_result()) do
+		local midasi, words = entry[1], entry[2]
+		for _, word in ipairs(words) do
+			result[#result + 1] = { word = word, midasi = midasi, okuri = "", type = "okurinasi" }
+		end
+	end
+	return result
+end
+
+--- feed (送りのローマ字) から確定しうる送り仮名を列挙する
+---@param kana_table skkelua.KanaTable
+---@param feed string
+---@return string[]
+local function feed_kana_candidates(kana_table, feed)
+	local kanas = {}
+	local seen = {}
+	for _, e in ipairs(kana_table) do
+		-- feed に前方一致し、残余 feed を持たないエントリだけが送り仮名として完成する
+		if vim.startswith(e[1], feed) and type(e[2]) == "table" and e[2][2] == "" then
+			local kana = e[2][1]
+			if kana ~= "" and not seen[kana] then
+				seen[kana] = true
+				kanas[#kanas + 1] = kana
+			end
+		end
+	end
+	return kanas
+end
+
+--- 送りあり変換入力 (▽おく*r) の候補:
+--- 送りのローマ字からありうる送り仮名を列挙し、語幹 + 送り仮名の完成形を出す
+---@return skkelua.LspCandidate[]
+local function okuriari_candidates()
+	local state = require("skkelua.store").get_context().state
+	if state.type ~= "input" or state.previousFeed then
+		return {}
+	end
+	local lib = require("skkelua.store").get_library()
+	local get_okuri_str = require("skkelua.okuri").get_okuri_str
+
+	local result = {}
+	local function collect(midasi, okuri)
+		for _, word in ipairs(lib:get_henkan_result("okuriari", midasi)) do
+			result[#result + 1] = { word = word, midasi = midasi, okuri = okuri, type = "okuriari" }
+		end
+	end
+
+	if state.okuriFeed ~= "" then
+		-- 送り仮名の先頭が確定済み (immediatelyOkuriConvert=false の「っ」など)。
+		-- 見出しは確定しているので、残り feed の展開だけ行う
+		local midasi = get_okuri_str(state.henkanFeed, state.okuriFeed)
+		if state.feed == "" then
+			collect(midasi, state.okuriFeed)
+		else
+			for _, kana in ipairs(feed_kana_candidates(state.table, state.feed)) do
+				collect(midasi, state.okuriFeed .. kana)
+			end
+		end
+	elseif state.feed ~= "" then
+		for _, kana in ipairs(feed_kana_candidates(state.table, state.feed)) do
+			collect(get_okuri_str(state.henkanFeed, kana), kana)
+		end
+	end
+	return result
+end
+
 --- 補完候補を組み立てる
 ---@param params table textDocument/completion のパラメータ
 ---@return table CompletionList
 local function make_completion_list(params)
 	local empty = { isIncomplete = true, items = {} }
 	local skkelua = require("skkelua")
-	if not skkelua.is_enabled() or skkelua.phase() ~= "input:okurinasi" then
+	local phase = skkelua.phase()
+	if not skkelua.is_enabled() or (phase ~= "input:okurinasi" and phase ~= "input:okuriari") then
 		return empty
 	end
 	local pre_edit = skkelua.get_pre_edit()
@@ -75,43 +153,50 @@ local function make_completion_list(params)
 		ranks[e[1]] = e[2]
 	end
 
+	local candidates
+	if phase == "input:okurinasi" then
+		candidates = okurinasi_candidates()
+	else
+		candidates = okuriari_candidates()
+	end
+
 	local items = {}
 	local seen = {}
-	for _, entry in ipairs(skkelua.get_completion_result()) do
-		local midasi, words = entry[1], entry[2]
-		for _, word in ipairs(words) do
-			local display = modify_candidate(word) or word
-			if not seen[display] then
-				seen[display] = true
-				local annotation = word:match(";(.*)$")
-				local rank = ranks[word]
-				local sort_text
-				if rank then
-					-- ランク付きを先頭に、ランクが大きい (新しい) ほど前へ
-					sort_text = ("0%015d"):format(1e15 - rank)
-				else
-					sort_text = ("1%08d"):format(#items)
-				end
-				items[#items + 1] = {
-					label = display,
-					labelDetails = annotation and { description = annotation } or nil,
-					detail = midasi,
-					kind = vim.lsp.protocol.CompletionItemKind.Text,
-					-- クライアントは typed text (▽かんじ) と filterText を照合する
-					filterText = marker .. midasi,
-					sortText = sort_text,
-					-- Note: PlainText だと word が filterText に fallback した場合に
-					--       newText が適用されない (単なる再挿入になる)。
-					--       Snippet format は確定時に挿入 word を削除して
-					--       newText を展開するため、▽かんじ を候補で置換できる
-					insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
-					textEdit = {
-						range = range,
-						newText = escape_snippet(display),
-					},
-					data = { skkelua = true, midasi = midasi, word = word },
-				}
+	for _, c in ipairs(candidates) do
+		-- 送りありは語幹 + 送り仮名の完成形を挿入する
+		local display = (modify_candidate(c.word) or c.word) .. c.okuri
+		if not seen[display] then
+			seen[display] = true
+			local annotation = c.word:match(";(.*)$")
+			local rank = ranks[c.word]
+			local sort_text
+			if rank then
+				-- ランク付きを先頭に、ランクが大きい (新しい) ほど前へ
+				sort_text = ("0%015d"):format(1e15 - rank)
+			else
+				sort_text = ("1%08d"):format(#items)
 			end
+			items[#items + 1] = {
+				label = display,
+				labelDetails = annotation and { description = annotation } or nil,
+				detail = c.midasi,
+				kind = vim.lsp.protocol.CompletionItemKind.Text,
+				-- クライアントは typed text と filterText を照合する。
+				-- 送りなしは続きのかな入力で絞り込めるよう marker + 見出し、
+				-- 送りありは pre-edit そのもの (絞り込みは再リクエストが担う)
+				filterText = c.type == "okurinasi" and (marker .. c.midasi) or pre_edit,
+				sortText = sort_text,
+				-- Note: PlainText だと word が filterText に fallback した場合に
+				--       newText が適用されない (単なる再挿入になる)。
+				--       Snippet format は確定時に挿入 word を削除して
+				--       newText を展開するため、pre-edit を候補で置換できる
+				insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
+				textEdit = {
+					range = range,
+					newText = escape_snippet(display),
+				},
+				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type },
+			}
 		end
 	end
 	return { isIncomplete = true, items = items }
@@ -168,7 +253,7 @@ local function on_complete_done()
 	local item = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp", "completion_item")
 	local data = item and item.data
 	if data and data.skkelua then
-		require("skkelua").complete_callback(data.midasi, data.word)
+		require("skkelua").complete_callback(data.midasi, data.word, data.type)
 	end
 end
 
