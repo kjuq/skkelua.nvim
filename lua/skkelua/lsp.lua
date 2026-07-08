@@ -19,7 +19,7 @@ local function escape_snippet(s)
 	return (s:gsub("[\\%$]", "\\%0"))
 end
 
---- ひらがな (+ 長音・マーカー) を triggerCharacters として列挙する
+--- ひらがな (+ 長音・マーカー・送りローマ字) を triggerCharacters として列挙する
 ---@return string[]
 local function trigger_characters()
 	local chars = {}
@@ -29,6 +29,13 @@ local function trigger_characters()
 	end
 	chars[#chars + 1] = "ー"
 	chars[#chars + 1] = require("skkelua.config").config.markerHenkan
+	-- 送りあり入力 (▽おく*r) で挿入されるのは "*" と送りのローマ字。
+	-- 以降の絞り込みは isIncomplete による再リクエストが担うが、
+	-- 初回トリガーのためにこれらも含める
+	chars[#chars + 1] = "*"
+	for i = 0, 25 do
+		chars[#chars + 1] = string.char(97 + i) -- a-z
+	end
 	return chars
 end
 
