@@ -1,4 +1,4 @@
-# skkelua
+# skkelua.nvim
 
 Neovim 専用の SKK 日本語入力環境です。pure Lua で実装されており、
 Neovim 組み込みの Lua ランタイムだけで動作します。
