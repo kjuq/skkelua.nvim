@@ -231,6 +231,14 @@ in-process の LSP サーバー (|vim.lsp.start()| の cmd 関数) として実�
 		completion = { enabled = true },
 	})
 <
+オプション:
+- enabled (false): 補完機能そのものの有効・無効
+- insertOnSelect (false): 候補の選択 (CTRL-N/CTRL-P でのフォーカス) と
+  同時に pre-edit を候補で置き換えます。有効化中は buffer-local の
+  'completeopt' から noinsert が外され noselect が足されます
+  (無効化時に復元)。pre-edit に ASCII を含む場合 (▽おく*r など) は
+  クライアント側フィルタの都合で従来どおり確定時に置換されます
+
 動作:
 - skkelua の有効化時にカレントバッファへ attach し、無効化で外れます
 - ▽ に続くかなの入力 (ひらがながトリガー文字) で自動的に補完が要求され、

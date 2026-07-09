@@ -306,6 +306,58 @@ t.test("okuriari candidate registers with okuriari type", function()
 	t.assert_equals({}, lib:get_henkan_result("okurinasi", "はしr"))
 end)
 
+t.test("insertOnSelect item shape", function()
+	setup_library()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true, insertOnSelect = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- かなのみの pre-edit (▽かんじ): 選択即挿入形式
+	local params = setup_henkan_state()
+	local list = require("skkelua.lsp")._make_completion_list(params)
+	t.assert_true(#list.items > 0)
+	local kanji
+	for _, item in ipairs(list.items) do
+		if item.label == "漢字" then
+			kanji = item
+		end
+	end
+	-- filterText 無し + PlainText + newText 素のまま = 選択で word が挿入される
+	t.assert_equals(nil, kanji.filterText)
+	t.assert_equals(vim.lsp.protocol.InsertTextFormat.PlainText, kanji.insertTextFormat)
+	t.assert_equals("漢字", kanji.textEdit.newText)
+	vim.cmd.bwipeout({ bang = true })
+
+	-- ASCII を含む pre-edit (▽おく*r): 従来方式 (filterText + Snippet)
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okuriari", "おくr", "送")
+	local _, params2 = (function()
+		local pre_edit, p = nil, nil
+		require("skkelua.store").init_context()
+		local sk = require("skkelua")
+		for _, k in ipairs({ "O", "k", "u", "R" }) do
+			sk._handle_request("handleKey", { key = { k } }, {
+				mode = "",
+				prevInput = require("skkelua.store").get_context():to_string(),
+				completeInfo = {},
+				completeType = "",
+			})
+		end
+		pre_edit = sk.get_pre_edit()
+		vim.cmd.enew({ bang = true })
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, { pre_edit })
+		vim.api.nvim_win_set_cursor(0, { 1, #pre_edit })
+		p = { position = { line = 0, character = #pre_edit } }
+		return pre_edit, p
+	end)()
+	local list2 = require("skkelua.lsp")._make_completion_list(params2)
+	t.assert_true(#list2.items > 0)
+	local okuri = list2.items[1]
+	t.assert_equals("▽おく*r", okuri.filterText)
+	t.assert_equals(vim.lsp.protocol.InsertTextFormat.Snippet, okuri.insertTextFormat)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
 t.test("CompleteDone registers only on accept", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })

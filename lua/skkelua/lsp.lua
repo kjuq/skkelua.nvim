@@ -194,6 +194,12 @@ local function make_completion_list(params)
 		candidates = henkan_candidates()
 	end
 
+	-- 選択と同時に挿入する形式が使えるか。
+	-- typed text (pre-edit) に ASCII 英数字が含まれるとクライアント側の
+	-- fuzzy フィルタが有効になり、filterText 無しの候補は弾かれてしまうため、
+	-- ▽おく*r のような送りローマ字入力中は従来方式に切り替える
+	local instant_insert = completion_config().insertOnSelect and not pre_edit:find("%w")
+
 	local items = {}
 	local seen = {}
 	for _, c in ipairs(candidates) do
@@ -210,28 +216,39 @@ local function make_completion_list(params)
 			else
 				sort_text = ("1%08d"):format(#items)
 			end
-			items[#items + 1] = {
+			local item = {
 				label = display,
 				labelDetails = annotation and { description = annotation } or nil,
 				detail = c.midasi,
 				kind = vim.lsp.protocol.CompletionItemKind.Text,
+				sortText = sort_text,
+				textEdit = {
+					range = range,
+					newText = display,
+				},
+				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type },
+			}
+			if instant_insert then
+				-- insertOnSelect: filterText を持たせないことで、クライアントの
+				-- 挿入 word が newText (候補そのもの) になり、<C-n> での
+				-- 選択と同時に pre-edit 全体が候補へ置き換わる。
+				-- この形が成立するのは typed text (pre-edit) に ASCII が無く
+				-- クライアント側フィルタが素通しになる場合のみ
+				item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.PlainText
+			else
 				-- クライアントは typed text と filterText を照合する。
 				-- 送りなし入力中は続きのかな入力で絞り込めるよう marker + 見出し、
 				-- それ以外 (送りあり入力・候補選択) は pre-edit そのもの
 				-- (絞り込みは isIncomplete の再リクエストが担う)
-				filterText = phase == "input:okurinasi" and (marker .. c.midasi) or pre_edit,
-				sortText = sort_text,
+				item.filterText = phase == "input:okurinasi" and (marker .. c.midasi) or pre_edit
 				-- Note: PlainText だと word が filterText に fallback した場合に
 				--       newText が適用されない (単なる再挿入になる)。
 				--       Snippet format は確定時に挿入 word を削除して
 				--       newText を展開するため、pre-edit を候補で置換できる
-				insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet,
-				textEdit = {
-					range = range,
-					newText = escape_snippet(display),
-				},
-				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type },
-			}
+				item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet
+				item.textEdit.newText = escape_snippet(display)
+			end
+			items[#items + 1] = item
 		end
 	end
 	return { isIncomplete = true, items = items }
@@ -304,6 +321,33 @@ local function on_complete_done()
 	M._on_complete_done(vim.tbl_get(vim.v.event, "reason"), vim.v.completed_item)
 end
 
+--- insertOnSelect 用に buffer-local 'completeopt' を調整する。
+--- 選択と同時に挿入するには noinsert が外れている必要があり、
+--- タイプ中に第一候補が勝手に入らないよう noselect を足す
+---@param buf integer
+local function apply_completeopt(buf)
+	if not completion_config().insertOnSelect then
+		return
+	end
+	local values = { "noselect" }
+	for _, o in ipairs(vim.opt_global.completeopt:get()) do
+		if o ~= "noinsert" and o ~= "noselect" then
+			values[#values + 1] = o
+		end
+	end
+	vim.api.nvim_set_option_value("completeopt", table.concat(values, ","), { buf = buf })
+end
+
+--- buffer-local 'completeopt' をグローバル値に戻す
+---@param buf integer
+local function restore_completeopt(buf)
+	if vim.api.nvim_buf_is_valid(buf) then
+		vim.api.nvim_buf_call(buf, function()
+			vim.cmd("setlocal completeopt<")
+		end)
+	end
+end
+
 ---@param client_id integer
 ---@param buf integer
 local function enable_completion(client_id, buf)
@@ -314,6 +358,7 @@ local function enable_completion(client_id, buf)
 	--       autotrigger は失われる。doc の注意書きを参照)
 	vim.lsp.completion.enable(false, client_id, buf)
 	vim.lsp.completion.enable(true, client_id, buf, { autotrigger = true })
+	apply_completeopt(buf)
 	vim.api.nvim_create_autocmd("CompleteDone", {
 		group = vim.api.nvim_create_augroup("skkelua-lsp-complete-done", { clear = true }),
 		callback = on_complete_done,
@@ -349,6 +394,7 @@ function M.detach()
 	if client then
 		vim.lsp.completion.enable(false, client.id, buf)
 	end
+	restore_completeopt(buf)
 end
 
 --- 有効化・無効化に連動する autocmd を登録する (plugin/skkelua.lua から呼ばれる)

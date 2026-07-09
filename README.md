@@ -90,7 +90,10 @@ in-process の LSP サーバーとして実装されており、外部プロセ�
 
 ```lua
 require("skkelua").config({
-	completion = { enabled = true },
+	completion = {
+		enabled = true,
+		insertOnSelect = true, -- 候補にフォーカスした時点で本文へ挿入する
+	},
 })
 ```
 
