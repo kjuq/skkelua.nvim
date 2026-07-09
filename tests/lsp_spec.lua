@@ -51,13 +51,21 @@ t.test("completion list for henkan input", function()
 
 	local list = require("skkelua.lsp")._make_completion_list()
 	t.assert_equals(true, list.isIncomplete)
-	t.assert_equals(3, #list.items)
+	-- 変換候補 3 件 + 末尾の [辞書登録]
+	t.assert_equals(4, #list.items)
 
 	-- クライアントは sortText (無ければ label) で並べ替えるため、
 	-- 辞書順を保てるよう応答順の連番が振られている
 	for i, item in ipairs(list.items) do
 		t.assert_equals(("%05d"):format(i), item.sortText)
 	end
+
+	-- 末尾は辞書登録項目: 挿入テキストは pre-edit のまま (バッファ不変)
+	local reg = list.items[#list.items]
+	t.assert_equals("[辞書登録]", reg.label)
+	t.assert_equals("かんじ", reg.detail)
+	t.assert_equals("▽かんじ", reg.textEdit.newText)
+	t.assert_equals(true, reg.data.register)
 
 	local by_label = {}
 	for _, item in ipairs(list.items) do
@@ -106,7 +114,7 @@ t.test("annotation is stripped from insert text", function()
 	place_pre_edit(skkelua.get_pre_edit())
 
 	local list = require("skkelua.lsp")._make_completion_list()
-	t.assert_equals(1, #list.items)
+	t.assert_equals(2, #list.items) -- 候補 1 件 + [辞書登録]
 	local item = list.items[1]
 	-- 挿入テキストは注釈なし、登録用 data には原文を保持
 	t.assert_equals("考", item.label)
@@ -158,7 +166,7 @@ t.test("autotrigger sends completion request", function()
 		vim.fn.feedkeys(vim.api.nvim_replace_termcodes("iJ<F7>Kanji<F7>", true, true, true), "tx")
 		t.assert_true(#lsp_mod._requests >= 1, "completion request should be sent")
 		local last = lsp_mod._requests[#lsp_mod._requests]
-		t.assert_equals(3, last.items)
+		t.assert_equals(4, last.items) -- 候補 3 件 + [辞書登録]
 	end)
 	vim.cmd("stopinsert")
 	vim.cmd.bwipeout({ bang = true })
@@ -387,6 +395,77 @@ t.test("deferOkuri keeps okuriari pre-edit and marks auto-select", function()
 	vim.cmd.bwipeout({ bang = true })
 end)
 
+
+t.test("register item appears alone for unknown reading", function()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- 辞書に無い読み (▽ぬぬ): 候補ゼロでも [辞書登録] だけの pum が出る
+	local pre_edit = setup_state({ "N", "u", "n", "u" })
+	t.assert_equals("▽ぬぬ", pre_edit)
+	local list = require("skkelua.lsp")._make_completion_list()
+	t.assert_equals(1, #list.items)
+	t.assert_equals("[辞書登録]", list.items[1].label)
+	t.assert_equals("▽ぬぬ", list.items[1].textEdit.newText)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("register item is hidden while okuri is undetermined", function()
+	local skkelua = require("skkelua")
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okuriari", "おくr", "送")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- ▽おく*r: 送り仮名が定まらないので [辞書登録] は出ない
+	setup_state({ "O", "k", "u", "R" })
+	local list = require("skkelua.lsp")._make_completion_list()
+	for _, item in ipairs(list.items) do
+		t.assert_true(not item.data.register, "register item should be hidden")
+	end
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("accepting register item opens the prompt via handle", function()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+	local lsp_mod = require("skkelua.lsp")
+	local lib = require("skkelua.store").get_library()
+
+	local called = {}
+	local orig_handle = skkelua.handle
+	skkelua.handle = function(func, opts)
+		called[#called + 1] = { func = func, opts = opts }
+	end
+	local ok, err = pcall(function()
+		lsp_mod._on_complete_done("accept", {
+			user_data = {
+				nvim = {
+					lsp = {
+						completion_item = {
+							data = { skkelua = true, register = true },
+						},
+					},
+				},
+			},
+		})
+		vim.wait(50, function()
+			return #called > 0
+		end, 5)
+	end)
+	skkelua.handle = orig_handle
+	if not ok then
+		error(err, 0)
+	end
+
+	t.assert_equals(1, #called)
+	t.assert_equals("handleKey", called[1].func)
+	t.assert_equals("registerWord", called[1].opts["function"])
+	-- 学習用の complete_callback (辞書登録) は走らない
+	t.assert_equals({}, lib:get_henkan_result("okurinasi", "ぬぬ"))
+end)
 
 t.test("CompleteDone registers only on accept", function()
 	local skkelua = require("skkelua")

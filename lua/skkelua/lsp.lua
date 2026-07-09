@@ -310,6 +310,47 @@ local function make_completion_list()
 		end
 	end
 
+	-- 新しい読みを登録する項目を末尾に置く (候補が無い読みでも pum が開く)。
+	-- 挿入テキストは pre-edit 自身にして、フォーカスや確定でバッファが
+	-- 変わらないようにする。確定すると CompleteDone から登録プロンプトが開く
+	local state = require("skkelua.store").get_context().state
+	local registrable = true
+	local midasi
+	if phase == "henkan" then
+		midasi = state.word
+	elseif phase == "input:okuriari" then
+		-- 送り仮名が確定するまでは登録する読みが定まらない
+		registrable = state.feed == "" and state.okuriFeed ~= ""
+		midasi = registrable and require("skkelua.okuri").get_okuri_str(state.henkanFeed, state.okuriFeed)
+	else
+		midasi = state.henkanFeed
+	end
+	if registrable then
+		local item = {
+			label = "[辞書登録]",
+			detail = midasi,
+			kind = vim.lsp.protocol.CompletionItemKind.Text,
+			sortText = ("%05d"):format(#items + 1),
+			textEdit = {
+				range = range,
+				newText = pre_edit,
+			},
+			data = { skkelua = true, register = true },
+		}
+		if instant_insert then
+			item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.PlainText
+			if prefixed_label then
+				item.label = pre_edit .. item.label
+				item.data.display = "[辞書登録]"
+			end
+		else
+			item.filterText = pre_edit
+			item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet
+			item.textEdit.newText = escape_snippet(pre_edit)
+		end
+		items[#items + 1] = item
+	end
+
 	return { isIncomplete = true, items = items }
 end
 
@@ -375,9 +416,19 @@ function M._on_complete_done(reason, completed_item)
 	end
 	local item = vim.tbl_get(completed_item or {}, "user_data", "nvim", "lsp", "completion_item")
 	local data = item and item.data
-	if data and data.skkelua then
-		require("skkelua").complete_callback(data.midasi, data.word, data.type)
+	if not (data and data.skkelua) then
+		return
 	end
+	if data.register then
+		-- [辞書登録] 項目: ins-completion の終了処理から抜けてから
+		-- 登録プロンプトを開く。挿入テキストが pre-edit のままなので
+		-- handle 側では変換入力の続きとして registerWord が実行される
+		vim.schedule(function()
+			require("skkelua").handle("handleKey", { ["function"] = "registerWord" })
+		end)
+		return
+	end
+	require("skkelua").complete_callback(data.midasi, data.word, data.type)
 end
 
 local function on_complete_done()

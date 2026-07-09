@@ -9,6 +9,41 @@ local M = {}
 -- 無限ループを起こすので、繰り返し呼ばれた場合は直接入力にフォールバックする
 local henkan_locked = false
 
+--- input state を候補未取得の henkan state へ遷移させる
+---@param context skkelua.Context
+---@return skkelua.HenkanState
+local function to_henkan_state(context)
+	local state = context.state --[[@as skkelua.HenkanState]]
+	state.type = "henkan"
+	state.candidates = {}
+	state.candidateIndex = -1
+
+	local word
+	if state.mode == "okurinasi" then
+		word = state.henkanFeed
+	else
+		word = require("skkelua.okuri").get_okuri_str(state.henkanFeed, state.okuriFeed)
+	end
+	state.word = word
+	if
+		state.affix == nil
+		and not state.directInput
+		and (state.mode == "okurinasi" or state.mode == "okuriari")
+	then
+		-- When user manually uses henkanPoint,
+		-- henkanFeed like `>prefix` and `suffix>` may
+		-- reach here with undefined affix
+		if state.henkanFeed:match(">$") then
+			state.affix = "prefix"
+		elseif state.henkanFeed:match("^>") then
+			state.affix = "suffix"
+		else
+			state.affix = nil
+		end
+	end
+	return state
+end
+
 --- 変換を開始する
 ---@param context skkelua.Context
 ---@param key string
@@ -38,37 +73,34 @@ function M.henkan_first(context, key)
 		return
 	end
 
-	local state = context.state --[[@as skkelua.HenkanState]]
-	state.type = "henkan"
-	state.candidates = {}
-	state.candidateIndex = -1
-
+	local state = to_henkan_state(context)
 	local lib = require("skkelua.store").get_library()
-	local word
-	if state.mode == "okurinasi" then
-		word = state.henkanFeed
-	else
-		word = require("skkelua.okuri").get_okuri_str(state.henkanFeed, state.okuriFeed)
+	state.candidates = lib:get_henkan_result(state.mode, state.word)
+	M.henkan_forward(context)
+end
+
+--- 変換候補を経由せず辞書登録プロンプトを開く
+--- (補完メニュー末尾の [辞書登録] 項目から呼ばれる)
+---@param context skkelua.Context
+function M.register_word_first(context)
+	local from_input = context.state.type == "input"
+	if from_input then
+		local state = context.state
+		if state.mode == "direct" or state.henkanFeed == "" then
+			return
+		end
+		require("skkelua.function.input").kakutei_feed(context)
+		to_henkan_state(context)
 	end
-	state.word = word
-	if
-		state.affix == nil
-		and not state.directInput
-		and (state.mode == "okurinasi" or state.mode == "okuriari")
-	then
-		-- When user manually uses henkanPoint,
-		-- henkanFeed like `>prefix` and `suffix>` may
-		-- reach here with undefined affix
-		if state.henkanFeed:match(">$") then
-			state.affix = "prefix"
-		elseif state.henkanFeed:match("^>") then
-			state.affix = "suffix"
-		else
-			state.affix = nil
+	if context.state.type ~= "henkan" then
+		return
+	end
+	if not require("skkelua.function.dictionary").register_word(context) then
+		-- キャンセル時: 変換入力から来た場合は変換入力の表示へ戻す
+		if from_input then
+			context.state.type = "input"
 		end
 	end
-	state.candidates = lib:get_henkan_result(state.mode, word)
-	M.henkan_forward(context)
 end
 
 --- 次候補へ進む

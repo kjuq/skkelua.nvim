@@ -48,6 +48,7 @@ function M.functions()
 			henkanForward = henkan.henkan_forward,
 			henkanBackward = henkan.henkan_backward,
 			henkanInput = henkan.henkan_input,
+			registerWord = henkan.register_word_first,
 			suffix = henkan.suffix,
 			-- input
 			kakuteiFeed = input.kakutei_feed,
