@@ -15,6 +15,15 @@ t.test("preedit test", function()
 	t.assert_equals("\b\b\b\bbarbaz", pre_edit:output("baz"))
 end)
 
+t.test("preedit sync retargets deletion", function()
+	local pre_edit = PreEdit.new()
+	pre_edit:output("▽おく*る")
+	-- 補完の選択挿入でバッファが候補 word に置き換わった想定:
+	-- sync 後の削除は置き換え後のテキストを対象にする
+	pre_edit:sync("送る")
+	t.assert_equals("\b\b", pre_edit:output(""))
+end)
+
 t.test("preedit with grapheme", function()
 	local pre_edit = PreEdit.new()
 	t.assert_equals("💩", pre_edit:output("💩"))

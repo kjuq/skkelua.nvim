@@ -39,6 +39,7 @@ function M.functions()
 			kakutei = common.kakutei_key,
 			newline = common.newline,
 			cancel = common.cancel,
+			deletePreEdit = common.delete_pre_edit,
 			purgeCandidate = common.purge_candidate,
 			-- disable
 			disable = disable.disable,

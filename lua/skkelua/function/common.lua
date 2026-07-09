@@ -86,6 +86,27 @@ function M.cancel(context)
 	end
 end
 
+--- 変換中の入力 (pre-edit) を全て削除する。
+--- 変換中でなければキー本来の動作 (単語削除など) に任せる
+---@param context skkelua.Context
+---@param key string
+function M.delete_pre_edit(context, key)
+	local state = context.state
+	if state.type == "input" and state.mode == "direct" then
+		-- insertOnSelect の選択挿入中はバッファが候補 word に置き換わって
+		-- おり、prevInput 不一致で state は direct へリセット済み。
+		-- 挿入中の word を表示中テキストとして同期し、まとめて削除する
+		local word = require("skkelua.lsp").selected_word()
+		if word then
+			context.preEdit:sync(word)
+			return
+		end
+		context:kakutei(key)
+		return
+	end
+	require("skkelua.mode").initialize_state_with_abbrev(context)
+end
+
 --- 候補を辞書から削除する
 ---@param context skkelua.Context
 function M.purge_candidate(context)

@@ -22,6 +22,14 @@ function PreEdit:do_kakutei(str)
 	self.kakutei = self.kakutei .. str
 end
 
+--- 表示中テキストの追跡を強制的に合わせる。
+--- 補完の選択挿入などで pre-edit がバッファ上で直接置き換えられた
+--- 場合に、置き換え後のテキストを削除対象として扱うための再同期用
+---@param str string
+function PreEdit:sync(str)
+	self.current = str
+end
+
 --- 次の表示状態を受け取り、送出すべきキー列を返す
 ---@param next_str string
 ---@return string

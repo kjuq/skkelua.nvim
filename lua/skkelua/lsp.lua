@@ -185,6 +185,15 @@ local function selected_word(before_cursor)
 	return word
 end
 
+--- pum で選択中の自前候補の word が現在のカーソル前に挿入されていれば返す
+--- (deletePreEdit が選択挿入中のテキストを削除対象にするために使う)
+---@return string?
+function M.selected_word()
+	local pos = vim.api.nvim_win_get_cursor(0)
+	local line = (vim.api.nvim_buf_get_lines(0, pos[1] - 1, pos[1], false) or {})[1] or ""
+	return selected_word(line:sub(1, pos[2]))
+end
+
 --- 補完候補を組み立てる。
 --- nil を返した場合は応答自体を保留する (complete() を走らせない)
 ---@return table? CompletionList
