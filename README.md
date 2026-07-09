@@ -1,5 +1,7 @@
 # skkelua.nvim
 
+<img width="640" height="355" alt="demo" src="https://github.com/user-attachments/assets/03a07620-4db7-495a-a526-f8b9f406fef7" />
+
 Neovim 専用の SKK 日本語入力環境です。pure Lua で実装されており、
 Neovim 組み込みの Lua ランタイムだけで動作します。
 
