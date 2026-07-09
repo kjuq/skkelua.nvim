@@ -15,6 +15,17 @@ local function setup_library()
 	lib:register_henkan_result("okurinasi", "かんが", "考;かんがえる")
 end
 
+--- pre-edit をバッファへ置き、カーソルをその直後 (挿入位置) に置く。
+--- completion list は現在のカーソル位置を基準に組み立てられる。
+--- normal モードの nvim_win_set_cursor は行末に clamp されるため
+--- virtualedit=onemore で挿入モードと同じ位置を作る
+local function place_pre_edit(pre_edit)
+	vim.cmd.enew({ bang = true })
+	vim.o.virtualedit = "onemore"
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, { pre_edit })
+	vim.api.nvim_win_set_cursor(0, { 1, #pre_edit })
+end
+
 --- ▽かんじ の変換入力状態を作り、バッファにも同じテキストを置く
 local function setup_henkan_state()
 	local skkelua = require("skkelua")
@@ -28,10 +39,7 @@ local function setup_henkan_state()
 	end
 	local pre_edit = skkelua.get_pre_edit()
 	t.assert_equals("▽かんじ", pre_edit)
-	vim.cmd.enew({ bang = true })
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, { pre_edit })
-	vim.api.nvim_win_set_cursor(0, { 1, #pre_edit })
-	return { position = { line = 0, character = #pre_edit } }
+	place_pre_edit(pre_edit)
 end
 
 t.test("completion list for henkan input", function()
@@ -39,11 +47,17 @@ t.test("completion list for henkan input", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })
 	skkelua._handle_request("enable", {}, vim_status)
-	local params = setup_henkan_state()
+	setup_henkan_state()
 
-	local list = require("skkelua.lsp")._make_completion_list(params)
+	local list = require("skkelua.lsp")._make_completion_list()
 	t.assert_equals(true, list.isIncomplete)
 	t.assert_equals(3, #list.items)
+
+	-- クライアントは sortText (無ければ label) で並べ替えるため、
+	-- 辞書順を保てるよう応答順の連番が振られている
+	for i, item in ipairs(list.items) do
+		t.assert_equals(("%05d"):format(i), item.sortText)
+	end
 
 	local by_label = {}
 	for _, item in ipairs(list.items) do
@@ -89,14 +103,9 @@ t.test("annotation is stripped from insert text", function()
 			completeType = "",
 		})
 	end
-	local pre_edit = skkelua.get_pre_edit()
-	vim.cmd.enew({ bang = true })
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, { pre_edit })
-	vim.api.nvim_win_set_cursor(0, { 1, #pre_edit })
+	place_pre_edit(skkelua.get_pre_edit())
 
-	local list = require("skkelua.lsp")._make_completion_list({
-		position = { line = 0, character = #pre_edit },
-	})
+	local list = require("skkelua.lsp")._make_completion_list()
 	t.assert_equals(1, #list.items)
 	local item = list.items[1]
 	-- 挿入テキストは注釈なし、登録用 data には原文を保持
@@ -114,16 +123,17 @@ t.test("no candidates outside henkan input", function()
 	local lsp_mod = require("skkelua.lsp")
 
 	-- 無効時
-	t.assert_equals(0, #lsp_mod._make_completion_list({ position = { line = 0, character = 0 } }).items)
+	t.assert_equals(0, #lsp_mod._make_completion_list().items)
 
 	-- 有効だが direct モード
 	skkelua._handle_request("enable", {}, vim_status)
-	t.assert_equals(0, #lsp_mod._make_completion_list({ position = { line = 0, character = 0 } }).items)
+	t.assert_equals(0, #lsp_mod._make_completion_list().items)
 
 	-- バッファ内容が pre-edit と一致しない場合
 	setup_henkan_state()
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "unrelated" })
-	t.assert_equals(0, #lsp_mod._make_completion_list({ position = { line = 0, character = 9 } }).items)
+	vim.api.nvim_win_set_cursor(0, { 1, 9 })
+	t.assert_equals(0, #lsp_mod._make_completion_list().items)
 	vim.cmd.bwipeout({ bang = true })
 end)
 
@@ -169,10 +179,8 @@ local function setup_state(keys)
 		})
 	end
 	local pre_edit = skkelua.get_pre_edit()
-	vim.cmd.enew({ bang = true })
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, { pre_edit })
-	vim.api.nvim_win_set_cursor(0, { 1, #pre_edit })
-	return pre_edit, { position = { line = 0, character = #pre_edit } }
+	place_pre_edit(pre_edit)
+	return pre_edit
 end
 
 t.test("completion during okuriari input", function()
@@ -184,11 +192,11 @@ t.test("completion during okuriari input", function()
 	skkelua._handle_request("enable", {}, vim_status)
 
 	-- ▽おく*r (送りのローマ字だけがある状態)
-	local pre_edit, params = setup_state({ "O", "k", "u", "R" })
+	local pre_edit = setup_state({ "O", "k", "u", "R" })
 	t.assert_equals("▽おく*r", pre_edit)
 	t.assert_equals("input:okuriari", skkelua.phase())
 
-	local list = require("skkelua.lsp")._make_completion_list(params)
+	local list = require("skkelua.lsp")._make_completion_list()
 	t.assert_true(#list.items > 0, "okuriari candidates should be present")
 
 	local by_label = {}
@@ -223,10 +231,10 @@ t.test("okuriari completion with confirmed sokuon", function()
 	skkelua._handle_request("enable", {}, vim_status)
 
 	-- ▽うたが*っt (okuriFeed=っ が確定済みで feed=t が残る状態)
-	local pre_edit, params = setup_state({ "U", "t", "a", "g", "a", "T", "t" })
+	local pre_edit = setup_state({ "U", "t", "a", "g", "a", "T", "t" })
 	t.assert_equals("▽うたが*っt", pre_edit)
 
-	local list = require("skkelua.lsp")._make_completion_list(params)
+	local list = require("skkelua.lsp")._make_completion_list()
 	local by_label = {}
 	for _, item in ipairs(list.items) do
 		by_label[item.label] = item
@@ -247,11 +255,11 @@ t.test("completion during henkan phase (candidate selection)", function()
 	skkelua._handle_request("enable", {}, vim_status)
 
 	-- OkuRu で送り仮名が確定し、即変換で ▼ 候補選択に入る
-	local pre_edit, params = setup_state({ "O", "k", "u", "R", "u" })
+	local pre_edit = setup_state({ "O", "k", "u", "R", "u" })
 	t.assert_equals("henkan", skkelua.phase())
 	t.assert_true(vim.startswith(pre_edit, "▼"))
 
-	local list = require("skkelua.lsp")._make_completion_list(params)
+	local list = require("skkelua.lsp")._make_completion_list()
 	local by_label = {}
 	for _, item in ipairs(list.items) do
 		by_label[item.label] = item
@@ -279,10 +287,10 @@ t.test("completion during okurinasi henkan phase", function()
 	skkelua._handle_request("enable", {}, vim_status)
 
 	-- ▽かんじ からスペースで ▼ 候補選択へ
-	local pre_edit, params = setup_state({ "K", "a", "n", "j", "i", " " })
+	local pre_edit = setup_state({ "K", "a", "n", "j", "i", " " })
 	t.assert_equals("henkan", skkelua.phase())
 
-	local list = require("skkelua.lsp")._make_completion_list(params)
+	local list = require("skkelua.lsp")._make_completion_list()
 	t.assert_true(#list.items >= 2)
 	local by_label = {}
 	for _, item in ipairs(list.items) do
@@ -313,8 +321,8 @@ t.test("insertOnSelect item shape", function()
 	skkelua._handle_request("enable", {}, vim_status)
 
 	-- かなのみの pre-edit (▽かんじ): 選択即挿入形式
-	local params = setup_henkan_state()
-	local list = require("skkelua.lsp")._make_completion_list(params)
+	setup_henkan_state()
+	local list = require("skkelua.lsp")._make_completion_list()
 	t.assert_true(#list.items > 0)
 	local kanji
 	for _, item in ipairs(list.items) do
@@ -332,26 +340,9 @@ t.test("insertOnSelect item shape", function()
 	-- pre-edit を前置し、表示用の display を data に持つ
 	local lib = require("skkelua.store").get_library()
 	lib:register_henkan_result("okuriari", "おくr", "送")
-	local _, params2 = (function()
-		local pre_edit, p = nil, nil
-		require("skkelua.store").init_context()
-		local sk = require("skkelua")
-		for _, k in ipairs({ "O", "k", "u", "R" }) do
-			sk._handle_request("handleKey", { key = { k } }, {
-				mode = "",
-				prevInput = require("skkelua.store").get_context():to_string(),
-				completeInfo = {},
-				completeType = "",
-			})
-		end
-		pre_edit = sk.get_pre_edit()
-		vim.cmd.enew({ bang = true })
-		vim.api.nvim_buf_set_lines(0, 0, -1, false, { pre_edit })
-		vim.api.nvim_win_set_cursor(0, { 1, #pre_edit })
-		p = { position = { line = 0, character = #pre_edit } }
-		return pre_edit, p
-	end)()
-	local list2 = require("skkelua.lsp")._make_completion_list(params2)
+	require("skkelua.store").init_context()
+	setup_state({ "O", "k", "u", "R" })
+	local list2 = require("skkelua.lsp")._make_completion_list()
 	t.assert_true(#list2.items > 0)
 	local okuri_item
 	for _, item in ipairs(list2.items) do
@@ -378,16 +369,17 @@ t.test("deferOkuri keeps okuriari pre-edit and marks auto-select", function()
 	skkelua._handle_request("enable", {}, vim_status)
 
 	-- OkuRu: 送り仮名確定でも henkan へ行かず ▽おく*る のまま
-	local pre_edit, params = setup_state({ "O", "k", "u", "R", "u" })
+	local pre_edit = setup_state({ "O", "k", "u", "R", "u" })
 	t.assert_equals("▽おく*る", pre_edit)
 	t.assert_equals("input:okuriari", skkelua.phase())
 
-	local list = require("skkelua.lsp")._make_completion_list(params)
+	local list = require("skkelua.lsp")._make_completion_list()
 	t.assert_true(#list.items > 0)
 	-- ASCII 無しなので素の insertOnSelect 形式
-	-- (「贈」の方が後に登録されているため rank 順で先頭に来る)
+	-- (ユーザー辞書は後から登録した候補が先頭に来るため「贈る」が第一候補)
 	local first = list.items[1]
 	t.assert_equals("贈る", first.textEdit.newText)
+	t.assert_equals("00001", first.sortText)
 	t.assert_equals(nil, first.filterText)
 	-- auto-select 応答では completeopt から noselect が外れる
 	local copt = vim.api.nvim_get_option_value("completeopt", { buf = 0 })
@@ -395,22 +387,6 @@ t.test("deferOkuri keeps okuriari pre-edit and marks auto-select", function()
 	vim.cmd.bwipeout({ bang = true })
 end)
 
-t.test("ranked candidate sorts first", function()
-	setup_library()
-	local skkelua = require("skkelua")
-	skkelua.config({ completion = { enabled = true } })
-	skkelua._handle_request("enable", {}, vim_status)
-	-- 「感じ」を使った実績を付ける
-	skkelua.complete_callback("かんじ", "感じ")
-
-	local params = setup_henkan_state()
-	local list = require("skkelua.lsp")._make_completion_list(params)
-	t.assert_true(#list.items >= 2)
-	t.assert_equals("感じ", list.items[1].label)
-	-- 内部ソートキーは応答に残さない
-	t.assert_equals(nil, list.items[1]._sort_rank)
-	vim.cmd.bwipeout({ bang = true })
-end)
 
 t.test("CompleteDone registers only on accept", function()
 	local skkelua = require("skkelua")

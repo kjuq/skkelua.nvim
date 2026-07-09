@@ -163,10 +163,32 @@ local function okuriari_candidates()
 	return result
 end
 
---- 補完候補を組み立てる
----@param params table textDocument/completion のパラメータ
----@return table CompletionList
-local function make_completion_list(params)
+--- pum で選択中の自前候補の word がカーソル前に挿入されていればそれを返す。
+--- insertOnSelect の選択挿入はバッファ上の pre-edit を候補 word で
+--- 置き換えるため、その間に届いた再リクエストは pre-edit を見つけられない
+---@param before_cursor string
+---@return string?
+local function selected_word(before_cursor)
+	if vim.fn.pumvisible() == 0 then
+		return nil
+	end
+	local info = vim.fn.complete_info({ "selected", "items" })
+	local sel = (info.selected or -1) >= 0 and info.items[info.selected + 1] or nil
+	local word = sel and sel.word
+	if not word or word == "" or not vim.endswith(before_cursor, word) then
+		return nil
+	end
+	local item = vim.tbl_get(sel, "user_data", "nvim", "lsp", "completion_item")
+	if not (item and vim.tbl_get(item, "data", "skkelua")) then
+		return nil
+	end
+	return word
+end
+
+--- 補完候補を組み立てる。
+--- nil を返した場合は応答自体を保留する (complete() を走らせない)
+---@return table? CompletionList
+local function make_completion_list()
 	local empty = { isIncomplete = true, items = {} }
 	local skkelua = require("skkelua")
 	local phase = skkelua.phase()
@@ -181,16 +203,28 @@ local function make_completion_list(params)
 	end
 
 	-- カーソル前のテキストが pre-edit (▽かんじ) で終わっていることを確認し、
-	-- その開始位置を置換範囲にする
-	local row = params.position and params.position.line
-	local col = params.position and params.position.character -- utf-8 (byte)
-	if not (row and col) then
-		return empty
-	end
+	-- その開始位置を置換範囲にする。
+	-- Note: params.position は使わない。pre-edit の再描画 (BS + 再挿入) は
+	--       InsertCharPre ごとにリクエストを積むので、後発の処理時点では
+	--       バッファが先へ進んでいることがある。クライアント (builtin) も
+	--       応答を処理時点のカーソルで解釈するため、常に現在位置で組み立てる
 	local buf = vim.api.nvim_get_current_buf()
+	local pos = vim.api.nvim_win_get_cursor(0)
+	local row = pos[1] - 1
+	local col = pos[2] -- utf-8 (byte)
 	local line = (vim.api.nvim_buf_get_lines(buf, row, row + 1, false) or {})[1] or ""
 	local before_cursor = line:sub(1, col)
 	if not vim.endswith(before_cursor, pre_edit) then
+		-- insertOnSelect の選択挿入中 (バッファは pre-edit でなく候補 word) に
+		-- 届いた後発リクエスト。pre-edit の再描画は InsertCharPre ごとに
+		-- リクエストを積むため、選択挿入を起こした応答の後にも同じ状態への
+		-- リクエストが残っている。ここで空を返すと complete() が pum を閉じ、
+		-- 同じ候補を返し直しても complete() の再実行で typed text が候補 word に
+		-- すり替わり <C-p>/<C-e> で pre-edit に戻れなくなる。
+		-- 応答を保留して、表示中の pum と選択状態をそのまま保つ
+		if selected_word(before_cursor) then
+			return nil
+		end
 		return empty
 	end
 	local start_col = col - #pre_edit
@@ -201,12 +235,6 @@ local function make_completion_list(params)
 
 	local marker = require("skkelua.config").config.markerHenkan
 	local modify_candidate = require("skkelua.candidate").modify_candidate
-
-	-- ユーザー辞書のランク (新しく使った候補ほど大きい値) を sortText へ反映する
-	local ranks = {}
-	for _, e in ipairs(skkelua.get_ranks()) do
-		ranks[e[1]] = e[2]
-	end
 
 	local candidates
 	if phase == "input:okurinasi" then
@@ -241,20 +269,21 @@ local function make_completion_list(params)
 		if not seen[display] then
 			seen[display] = true
 			local annotation = c.word:match(";(.*)$")
-			local rank = ranks[c.word]
 			local item = {
 				label = display,
 				labelDetails = annotation and { description = annotation } or nil,
 				detail = c.midasi,
 				kind = vim.lsp.protocol.CompletionItemKind.Text,
+				-- クライアント (builtin) は sortText (無ければ label) で並べ替える。
+				-- 辞書順 (ユーザー辞書 -> グローバル辞書のマージ順) を保つよう
+				-- 応答順の連番を振る
+				sortText = ("%05d"):format(#items + 1),
 				textEdit = {
 					range = range,
 					newText = display,
 				},
 				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type },
 			}
-			-- 並び順: ランク付き (最近使った) 候補を先に、残りは辞書順
-			item._sort_rank = rank and (1e15 - rank) or (1e15 + #items)
 			if instant_insert then
 				-- insertOnSelect: filterText を持たせないことで、クライアントの
 				-- 挿入 word が newText (候補そのもの) になり、<C-n> での
@@ -281,14 +310,6 @@ local function make_completion_list(params)
 		end
 	end
 
-	-- Note: builtin は sortText を complete-items へ伝えず応答の配列順で
-	--       並べるため、ここでソートして返す
-	table.sort(items, function(a, b)
-		return a._sort_rank < b._sort_rank
-	end)
-	for _, item in ipairs(items) do
-		item._sort_rank = nil
-	end
 	return { isIncomplete = true, items = items }
 end
 
@@ -312,9 +333,13 @@ local function new_server()
 					},
 				})
 			elseif method == "textDocument/completion" then
-				local list = make_completion_list(params)
-				table.insert(M._requests, { params = params, items = #list.items })
-				handler(nil, list)
+				local list = make_completion_list()
+				-- nil は応答保留 (選択挿入中のバースト)。放置されたリクエストは
+				-- クライアントが次の trigger 時に cancel してくれる
+				if list then
+					table.insert(M._requests, { params = params, items = #list.items })
+					handler(nil, list)
+				end
 			elseif method == "shutdown" then
 				handler(nil, nil)
 			end
@@ -461,8 +486,8 @@ function M.setup_autocmds()
 end
 
 --- テスト用: completion list を直接組み立てる
-function M._make_completion_list(params)
-	return make_completion_list(params)
+function M._make_completion_list()
+	return make_completion_list()
 end
 
 -- テスト用: 処理した completion リクエストの記録
