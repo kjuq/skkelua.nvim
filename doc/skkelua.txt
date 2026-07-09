@@ -246,6 +246,11 @@ Note: 表示中の補完メニューの操作 (CTRL-N/CTRL-P/CTRL-Y) は Neovim 
 ins-completion です。mappedKeys やバッファローカルマップで同じキーを
 skkelua に割り当てている場合は、|pumvisible()| で分岐してください。
 
+Note: |vim.lsp.completion.enable()| は最初にバッファの補完状態を作った
+呼び出しの opts で動作が固定されます。skkelua が有効なバッファに対して
+他の設定・プラグインが opts 無しで enable(true) を呼ぶと、skkelua の
+autotrigger が失われて候補が自動表示されなくなります。
+
 ==============================================================================
 INDICATOR                                                  *skkelua-indicator*
 

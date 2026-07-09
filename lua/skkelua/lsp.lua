@@ -307,6 +307,12 @@ end
 ---@param client_id integer
 ---@param buf integer
 local function enable_completion(client_id, buf)
+	-- Note: builtin の completion.enable は「最初に buf_handle を作った呼び出しの
+	--       opts」でバッファの補完動作が固定される。有効化・無効化サイクルを
+	--       冪等にするため、一度無効化してから autotrigger 付きで登録し直す
+	--       (それでも他の設定が同一バッファへ opts 無しで enable(true) を呼ぶと
+	--       autotrigger は失われる。doc の注意書きを参照)
+	vim.lsp.completion.enable(false, client_id, buf)
 	vim.lsp.completion.enable(true, client_id, buf, { autotrigger = true })
 	vim.api.nvim_create_autocmd("CompleteDone", {
 		group = vim.api.nvim_create_augroup("skkelua-lsp-complete-done", { clear = true }),
