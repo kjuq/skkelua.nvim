@@ -59,6 +59,10 @@ local function do_kakutei(context, kana, feed)
 	end
 	M.kakutei_kana(state, context.preEdit, kana, feed)
 	if state.mode == "okuriari" and feed == "" then
+		-- deferOkuri: 自動変換せず ▽おく*る のまま補完メニューでの選択に委ねる
+		if config.completion.enabled and config.completion.deferOkuri then
+			return
+		end
 		if util.char_sub(state.okuriFeed, -1) == "っ" then
 			-- immediatelyOkuriConvert が有効になっていない場合
 			-- 直接入力などで「使った」のように打つ時「つかっ」の段階では変換をしない

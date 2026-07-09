@@ -57,9 +57,11 @@ M.default_indicator = default_indicator
 ---@class skkelua.CompletionOptions
 ---@field enabled boolean 変換候補を builtin LSP 補完として表示するかどうか
 ---@field insertOnSelect boolean 候補の選択 (フォーカス) と同時に本文へ挿入するかどうか
+---@field deferOkuri boolean 送り仮名確定時に自動変換せず、補完メニューでの選択に委ねるかどうか
 local default_completion = {
 	enabled = false,
 	insertOnSelect = false,
+	deferOkuri = false,
 }
 
 M.default_completion = default_completion
@@ -161,6 +163,7 @@ local validators = {
 		local merged = vim.tbl_extend("force", vim.deepcopy(M.default_completion), x)
 		ensure_type(merged.enabled, "boolean", "completion.enabled")
 		ensure_type(merged.insertOnSelect, "boolean", "completion.insertOnSelect")
+		ensure_type(merged.deferOkuri, "boolean", "completion.deferOkuri")
 		return merged
 	end,
 	completionRankFile = ensure_string("completionRankFile"),

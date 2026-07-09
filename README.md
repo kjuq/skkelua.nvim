@@ -93,6 +93,7 @@ require("skkelua").config({
 	completion = {
 		enabled = true,
 		insertOnSelect = true, -- 候補にフォーカスした時点で本文へ挿入する
+		deferOkuri = true, -- 送り仮名確定でも自動変換せず、第一候補を自動選択する
 	},
 })
 ```

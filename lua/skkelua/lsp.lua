@@ -12,6 +12,29 @@ local function completion_config()
 	return require("skkelua.config").config.completion
 end
 
+--- insertOnSelect 用に buffer-local 'completeopt' を調整する。
+--- 選択と同時に挿入するには noinsert が外れている必要があり、
+--- タイプ中に第一候補が勝手に入らないよう通常は noselect を足す。
+--- auto_select (送り仮名確定直後) の応答では noselect も外し、
+--- 第一候補が自動選択 + 挿入されるようにする
+---@param buf integer
+---@param auto_select? boolean
+local function set_completeopt(buf, auto_select)
+	if not completion_config().insertOnSelect then
+		return
+	end
+	local values = {}
+	if not auto_select then
+		values[#values + 1] = "noselect"
+	end
+	for _, o in ipairs(vim.opt_global.completeopt:get()) do
+		if o ~= "noinsert" and o ~= "noselect" then
+			values[#values + 1] = o
+		end
+	end
+	vim.api.nvim_set_option_value("completeopt", table.concat(values, ","), { buf = buf })
+end
+
 --- vim.snippet の特殊文字 ($ と \) をエスケープする
 ---@param s string
 ---@return string
@@ -194,11 +217,21 @@ local function make_completion_list(params)
 		candidates = henkan_candidates()
 	end
 
-	-- 選択と同時に挿入する形式が使えるか。
+	local instant_insert = completion_config().insertOnSelect
 	-- typed text (pre-edit) に ASCII 英数字が含まれるとクライアント側の
-	-- fuzzy フィルタが有効になり、filterText 無しの候補は弾かれてしまうため、
-	-- ▽おく*r のような送りローマ字入力中は従来方式に切り替える
-	local instant_insert = completion_config().insertOnSelect and not pre_edit:find("%w")
+	-- fuzzy フィルタが有効になり、素の label ではマッチしなくなる。
+	-- その場合は label に pre-edit を前置してフィルタを通し、
+	-- 表示は convert フック (enable 時に登録) で候補のみへ戻す
+	local prefixed_label = pre_edit:find("%w") ~= nil
+
+	-- deferOkuri で送り仮名が確定した直後 (▽おく*る) は、第一候補を
+	-- 自動選択して即挿入する (completeopt の noselect をこの応答だけ外す)
+	local auto_select = false
+	if instant_insert and phase == "input:okuriari" then
+		local state = require("skkelua.store").get_context().state
+		auto_select = completion_config().deferOkuri and state.feed == "" and state.okuriFeed ~= ""
+	end
+	set_completeopt(buf, auto_select)
 
 	local items = {}
 	local seen = {}
@@ -209,32 +242,28 @@ local function make_completion_list(params)
 			seen[display] = true
 			local annotation = c.word:match(";(.*)$")
 			local rank = ranks[c.word]
-			local sort_text
-			if rank then
-				-- ランク付きを先頭に、ランクが大きい (新しい) ほど前へ
-				sort_text = ("0%015d"):format(1e15 - rank)
-			else
-				sort_text = ("1%08d"):format(#items)
-			end
 			local item = {
 				label = display,
 				labelDetails = annotation and { description = annotation } or nil,
 				detail = c.midasi,
 				kind = vim.lsp.protocol.CompletionItemKind.Text,
-				sortText = sort_text,
 				textEdit = {
 					range = range,
 					newText = display,
 				},
 				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type },
 			}
+			-- 並び順: ランク付き (最近使った) 候補を先に、残りは辞書順
+			item._sort_rank = rank and (1e15 - rank) or (1e15 + #items)
 			if instant_insert then
 				-- insertOnSelect: filterText を持たせないことで、クライアントの
 				-- 挿入 word が newText (候補そのもの) になり、<C-n> での
-				-- 選択と同時に pre-edit 全体が候補へ置き換わる。
-				-- この形が成立するのは typed text (pre-edit) に ASCII が無く
-				-- クライアント側フィルタが素通しになる場合のみ
+				-- 選択と同時に pre-edit 全体が候補へ置き換わる
 				item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.PlainText
+				if prefixed_label then
+					item.label = pre_edit .. display
+					item.data.display = display
+				end
 			else
 				-- クライアントは typed text と filterText を照合する。
 				-- 送りなし入力中は続きのかな入力で絞り込めるよう marker + 見出し、
@@ -250,6 +279,15 @@ local function make_completion_list(params)
 			end
 			items[#items + 1] = item
 		end
+	end
+
+	-- Note: builtin は sortText を complete-items へ伝えず応答の配列順で
+	--       並べるため、ここでソートして返す
+	table.sort(items, function(a, b)
+		return a._sort_rank < b._sort_rank
+	end)
+	for _, item in ipairs(items) do
+		item._sort_rank = nil
 	end
 	return { isIncomplete = true, items = items }
 end
@@ -321,22 +359,6 @@ local function on_complete_done()
 	M._on_complete_done(vim.tbl_get(vim.v.event, "reason"), vim.v.completed_item)
 end
 
---- insertOnSelect 用に buffer-local 'completeopt' を調整する。
---- 選択と同時に挿入するには noinsert が外れている必要があり、
---- タイプ中に第一候補が勝手に入らないよう noselect を足す
----@param buf integer
-local function apply_completeopt(buf)
-	if not completion_config().insertOnSelect then
-		return
-	end
-	local values = { "noselect" }
-	for _, o in ipairs(vim.opt_global.completeopt:get()) do
-		if o ~= "noinsert" and o ~= "noselect" then
-			values[#values + 1] = o
-		end
-	end
-	vim.api.nvim_set_option_value("completeopt", table.concat(values, ","), { buf = buf })
-end
 
 --- buffer-local 'completeopt' をグローバル値に戻す
 ---@param buf integer
@@ -348,6 +370,18 @@ local function restore_completeopt(buf)
 	end
 end
 
+--- ASCII 混じり pre-edit ではフィルタを通すため label に pre-edit を
+--- 前置している。pum の表示 (abbr) は候補そのものへ戻す
+---@param item table lsp.CompletionItem
+---@return table
+local function convert_item(item)
+	local display = vim.tbl_get(item, "data", "display")
+	if display then
+		return { abbr = display }
+	end
+	return {}
+end
+
 ---@param client_id integer
 ---@param buf integer
 local function enable_completion(client_id, buf)
@@ -357,8 +391,8 @@ local function enable_completion(client_id, buf)
 	--       (それでも他の設定が同一バッファへ opts 無しで enable(true) を呼ぶと
 	--       autotrigger は失われる。doc の注意書きを参照)
 	vim.lsp.completion.enable(false, client_id, buf)
-	vim.lsp.completion.enable(true, client_id, buf, { autotrigger = true })
-	apply_completeopt(buf)
+	vim.lsp.completion.enable(true, client_id, buf, { autotrigger = true, convert = convert_item })
+	set_completeopt(buf, false)
 	vim.api.nvim_create_autocmd("CompleteDone", {
 		group = vim.api.nvim_create_augroup("skkelua-lsp-complete-done", { clear = true }),
 		callback = on_complete_done,

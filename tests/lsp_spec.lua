@@ -328,7 +328,8 @@ t.test("insertOnSelect item shape", function()
 	t.assert_equals("漢字", kanji.textEdit.newText)
 	vim.cmd.bwipeout({ bang = true })
 
-	-- ASCII を含む pre-edit (▽おく*r): 従来方式 (filterText + Snippet)
+	-- ASCII を含む pre-edit (▽おく*r): フィルタを通すため label に
+	-- pre-edit を前置し、表示用の display を data に持つ
 	local lib = require("skkelua.store").get_library()
 	lib:register_henkan_result("okuriari", "おくr", "送")
 	local _, params2 = (function()
@@ -352,9 +353,62 @@ t.test("insertOnSelect item shape", function()
 	end)()
 	local list2 = require("skkelua.lsp")._make_completion_list(params2)
 	t.assert_true(#list2.items > 0)
-	local okuri = list2.items[1]
-	t.assert_equals("▽おく*r", okuri.filterText)
-	t.assert_equals(vim.lsp.protocol.InsertTextFormat.Snippet, okuri.insertTextFormat)
+	local okuri_item
+	for _, item in ipairs(list2.items) do
+		if item.data.display == "送り" then
+			okuri_item = item
+		end
+	end
+	t.assert_true(okuri_item ~= nil)
+	t.assert_equals("▽おく*r送り", okuri_item.label)
+	t.assert_equals(nil, okuri_item.filterText)
+	t.assert_equals(vim.lsp.protocol.InsertTextFormat.PlainText, okuri_item.insertTextFormat)
+	t.assert_equals("送り", okuri_item.textEdit.newText)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("deferOkuri keeps okuriari pre-edit and marks auto-select", function()
+	local skkelua = require("skkelua")
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okuriari", "おくr", "送")
+	lib:register_henkan_result("okuriari", "おくr", "贈")
+	skkelua.config({
+		completion = { enabled = true, insertOnSelect = true, deferOkuri = true },
+	})
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- OkuRu: 送り仮名確定でも henkan へ行かず ▽おく*る のまま
+	local pre_edit, params = setup_state({ "O", "k", "u", "R", "u" })
+	t.assert_equals("▽おく*る", pre_edit)
+	t.assert_equals("input:okuriari", skkelua.phase())
+
+	local list = require("skkelua.lsp")._make_completion_list(params)
+	t.assert_true(#list.items > 0)
+	-- ASCII 無しなので素の insertOnSelect 形式
+	-- (「贈」の方が後に登録されているため rank 順で先頭に来る)
+	local first = list.items[1]
+	t.assert_equals("贈る", first.textEdit.newText)
+	t.assert_equals(nil, first.filterText)
+	-- auto-select 応答では completeopt から noselect が外れる
+	local copt = vim.api.nvim_get_option_value("completeopt", { buf = 0 })
+	t.assert_true(not copt:find("noselect"), "noselect should be dropped for auto-select")
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("ranked candidate sorts first", function()
+	setup_library()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+	-- 「感じ」を使った実績を付ける
+	skkelua.complete_callback("かんじ", "感じ")
+
+	local params = setup_henkan_state()
+	local list = require("skkelua.lsp")._make_completion_list(params)
+	t.assert_true(#list.items >= 2)
+	t.assert_equals("感じ", list.items[1].label)
+	-- 内部ソートキーは応答に残さない
+	t.assert_equals(nil, list.items[1]._sort_rank)
 	vim.cmd.bwipeout({ bang = true })
 end)
 
