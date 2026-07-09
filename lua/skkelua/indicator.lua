@@ -46,6 +46,7 @@ end
 ---@field name string
 ---@field text string
 ---@field hl_name string
+---@field border_hl_name string
 ---@field width integer
 
 --- 設定からモード定義 (テキスト・ハイライト) を構築する
@@ -62,10 +63,19 @@ local function build_modes()
 			hl = default_hl[vim.o.background][name]
 		end
 		vim.api.nvim_set_hl(0, hl_name, hl)
+		-- border 付きデザイン用: 背景を塗り潰さず、塗り色 (bg) を枠線と
+		-- 文字の色 (fg) に流用したグループ ({HlName}Border) を用意する
+		local border_hl_name = hl_name .. "Border"
+		local border_hl = vim.api.nvim_get_hl(0, { name = border_hl_name })
+		if vim.tbl_isempty(border_hl) or (is_default_colorscheme and config.useDefaultHighlight) then
+			border_hl = { fg = hl.bg or hl.fg, ctermfg = hl.ctermbg or hl.ctermfg, bold = hl.bold }
+		end
+		vim.api.nvim_set_hl(0, border_hl_name, border_hl)
 		modes[name] = {
 			name = name,
 			text = text,
 			hl_name = hl_name,
+			border_hl_name = border_hl_name,
 			width = vim.fn.strdisplaywidth(text),
 		}
 	end
@@ -149,7 +159,9 @@ function Indicator:set_text(buf, mode)
 	local config = indicator_config()
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { mode.text })
 	vim.api.nvim_buf_clear_namespace(buf, self.ns, 0, -1)
-	vim.hl.range(buf, self.ns, mode.hl_name, { 0, 0 }, { 0, -1 })
+	-- border 付きは背景を塗り潰さず、文字色 (fg) だけをモード色にする
+	local hl_name = self:has_border(mode) and mode.border_hl_name or mode.hl_name
+	vim.hl.range(buf, self.ns, hl_name, { 0, 0 }, { 0, -1 })
 	self.timer:stop()
 	if config.fadeOutMs > 0 then
 		self.timer:start(config.fadeOutMs, 0, self:method("close"))
@@ -163,7 +175,16 @@ function Indicator:border(mode)
 	if type(border_opt) == "function" then
 		return border_opt({ mode = mode.name }) or { " " }
 	end
-	return border_opt
+	-- 未設定ならグローバルの 'winborder' に影響されないよう明示的に枠なしへ
+	return border_opt or "none"
+end
+
+--- ボーダー付きデザイン (塗り潰し無し + 枠線と文字がモード色) を使うか
+---@param mode skkelua.IndicatorMode
+---@return boolean
+function Indicator:has_border(mode)
+	local border = self:border(mode)
+	return border ~= nil and border ~= "none" and border ~= "shadow"
 end
 
 --- row のデフォルトは border の有無で変わる
@@ -180,7 +201,12 @@ end
 ---@param winid integer
 ---@param mode skkelua.IndicatorMode
 function Indicator:border_highlight(winid, mode)
-	vim.wo[winid].winhighlight = "FloatBorder:" .. mode.hl_name
+	if self:has_border(mode) then
+		-- 背景をエディタと同化させ、枠線をモード色にする
+		vim.wo[winid].winhighlight = "NormalFloat:Normal,FloatBorder:" .. mode.border_hl_name
+	else
+		vim.wo[winid].winhighlight = "FloatBorder:" .. mode.hl_name
+	end
 end
 
 function Indicator:open()

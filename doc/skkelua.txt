@@ -282,6 +282,7 @@ config() の indicator キーで設定します (括弧内はデフォルト値)
 			zenkakuText = "全英",
 			abbrevText = "abbr",
 			border = nil,          -- nvim_open_win の border
+			                       -- (nil なら枠なし。'winborder' は適用しない)
 			row = nil,             -- nil なら border に応じて自動
 			col = 1,
 			zindex = nil,
@@ -291,12 +292,25 @@ config() の indicator キーで設定します (括弧内はデフォルト値)
 		},
 	})
 <
+border を設定すると見た目が変わります:
+
+	border なし (デフォルト)
+		テキストの背景をモード色で塗り潰します。
+	border あり ("single" / "rounded" など。"none" / "shadow" を除く)
+		塗り潰しをやめ、枠線とテキストの文字色 (fg) をモード色に
+		します。背景はエディタと同化します。
+
 ハイライトグループ ~
 	SkkeluaIndicatorEiji / SkkeluaIndicatorHira / SkkeluaIndicatorKata /
 	SkkeluaIndicatorHankata / SkkeluaIndicatorZenkaku /
 	SkkeluaIndicatorAbbrev
-	カラースキームで定義されていればそれを使い、無ければ組み込みの
-	配色を設定します。
+	塗り潰しデザイン (border なし) 用。カラースキームで定義されて
+	いればそれを使い、無ければ組み込みの配色を設定します。
+
+	SkkeluaIndicatorEijiBorder / SkkeluaIndicatorHiraBorder / ... /
+	SkkeluaIndicatorAbbrevBorder
+	border ありデザイン用 (枠線とテキストの文字色)。未定義なら
+	塗り潰し用グループの bg を fg に流用した定義を設定します。
 
 このインジケータは skkeleton_indicator.nvim
 (https://github.com/delphinus/skkeleton_indicator.nvim) を基に

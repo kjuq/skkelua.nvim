@@ -122,6 +122,57 @@ t.test("indicator text and highlight are configurable", function()
 	t.assert_equals("ひ", instance:detect().text)
 end)
 
+--- インジケータのテキストに当たっているハイライトグループを返す
+local function indicator_text_hl(instance)
+	local buf = vim.api.nvim_win_get_buf(instance.winid[1])
+	local marks = vim.api.nvim_buf_get_extmarks(buf, instance.ns, 0, -1, { details = true })
+	return marks[1] and marks[1][4].hl_group
+end
+
+t.test("border style drops the fill and colors the border", function()
+	local skkelua = require("skkelua")
+	skkelua.config({ indicator = { border = "rounded" } })
+	local instance = attach()
+	skkelua._handle_request("enable", {}, vim_status)
+	instance:close()
+	drain()
+	instance:open()
+	t.assert_equals("ひら", indicator_text())
+
+	-- 枠線とテキストは {HlName}Border グループ (塗り潰し無し)
+	local winid = instance.winid[1]
+	t.assert_equals(
+		"NormalFloat:Normal,FloatBorder:SkkeluaIndicatorHiraBorder",
+		vim.wo[winid].winhighlight
+	)
+	t.assert_equals("SkkeluaIndicatorHiraBorder", indicator_text_hl(instance))
+
+	-- Border グループは塗り潰し色 (bg) を文字色 (fg) に流用した bg 無し定義
+	local fill = vim.api.nvim_get_hl(0, { name = "SkkeluaIndicatorHira" })
+	local border = vim.api.nvim_get_hl(0, { name = "SkkeluaIndicatorHiraBorder" })
+	t.assert_equals(fill.bg, border.fg)
+	t.assert_equals(nil, border.bg)
+end)
+
+t.test("no border keeps the filled style", function()
+	local skkelua = require("skkelua")
+	-- border 未設定はグローバルの 'winborder' の影響も受けない
+	vim.o.winborder = "rounded"
+	local instance = attach()
+	skkelua._handle_request("enable", {}, vim_status)
+	instance:close()
+	drain()
+	instance:open()
+
+	local winid = instance.winid[1]
+	t.assert_equals("none", vim.api.nvim_win_get_config(winid).border)
+	t.assert_equals("FloatBorder:SkkeluaIndicatorHira", vim.wo[winid].winhighlight)
+	t.assert_equals("SkkeluaIndicatorHira", indicator_text_hl(instance))
+	local fill = vim.api.nvim_get_hl(0, { name = "SkkeluaIndicatorHira" })
+	t.assert_true(fill.bg ~= nil)
+	vim.o.winborder = ""
+end)
+
 t.test("fade out timer closes the window", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ indicator = { fadeOutMs = 20 } })

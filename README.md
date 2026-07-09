@@ -77,11 +77,16 @@ require("skkelua").config({
 		alwaysShown = false,  -- skkelua が有効な間だけ表示
 		fadeOutMs = 0,        -- 0 で自動フェードアウトなし
 		hiraText = "ひら",    -- 表示テキストのカスタマイズ
+		border = "rounded",   -- 枠線 (nvim_open_win の border)
 	},
 })
 ```
 
-ハイライトは `SkkeluaIndicatorHira` などのグループで上書きできます。
+デフォルト (border なし) はテキストの背景をモード色で塗り潰します。
+border を設定すると塗り潰しをやめ、枠線と文字の色 (fg) がモード色になります。
+
+ハイライトは `SkkeluaIndicatorHira` (塗り潰し) /
+`SkkeluaIndicatorHiraBorder` (border あり) などのグループで上書きできます。
 
 ## 変換候補の補完表示 (builtin LSP)
 
