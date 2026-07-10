@@ -321,15 +321,16 @@ local function make_completion_list()
 
 	-- 新しい読みを登録する項目を末尾に置く (候補が無い読みでも pum が開く)。
 	-- 挿入テキストは pre-edit 自身にして、フォーカスや確定でバッファが
-	-- 変わらないようにする。確定すると CompleteDone から登録プロンプトが開く
+	-- 変わらないようにする。確定すると CompleteDone から登録プロンプトが開く。
+	-- Note: 登録プロンプト (buftype=prompt) の中ではネストを防ぐため出さない
 	local state = require("skkelua.store").get_context().state
-	local registrable = true
+	local registrable = vim.bo[buf].buftype ~= "prompt"
 	local midasi
 	if phase == "henkan" then
 		midasi = state.word
 	elseif phase == "input:okuriari" then
 		-- 送り仮名が確定するまでは登録する読みが定まらない
-		registrable = state.feed == "" and state.okuriFeed ~= ""
+		registrable = registrable and state.feed == "" and state.okuriFeed ~= ""
 		midasi = registrable and require("skkelua.okuri").get_okuri_str(state.henkanFeed, state.okuriFeed)
 	else
 		midasi = state.henkanFeed

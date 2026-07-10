@@ -30,6 +30,12 @@ function PreEdit:sync(str)
 	self.current = str
 end
 
+--- 表示中として追跡しているテキストを返す
+---@return string
+function PreEdit:shown()
+	return self.current
+end
+
 --- 次の表示状態を受け取り、送出すべきキー列を返す
 ---@param next_str string
 ---@return string
