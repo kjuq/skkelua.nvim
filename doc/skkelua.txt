@@ -391,14 +391,18 @@ register_kanatable() でかな入力ルールを編集できます。
 	})
 <
 指定できる機能名: kakutei, kakuteiSpace, newline, cancel, deletePreEdit,
-purgeCandidate, disable, escape, henkanFirst, henkanForward, henkanBackward,
-henkanInput, registerWord, suffix, kakuteiFeed, henkanPoint, deleteChar,
-prefix, abbrev, hirakana, katakana, hankatakana, zenkaku
+passThrough, purgeCandidate, disable, escape, henkanFirst, henkanForward,
+henkanBackward, henkanInput, registerWord, suffix, kakuteiFeed, henkanPoint,
+deleteChar, prefix, abbrev, hirakana, katakana, hankatakana, zenkaku
 
 - deletePreEdit: 変換中の入力 (pre-edit) をマーカーごと全て削除します。
   補完メニューの選択挿入中は挿入された候補ごと削除します。
   変換中でなければキー本来の動作 (単語削除など) に任せます。
   デフォルトで <C-w> に割り当てられています
+- passThrough: 変換中は何もせず、直接入力ではキー本来の動作に任せます。
+  マップしないとバッファへ直接挿入されて pre-edit を壊す特殊キーの
+  保護用で、デフォルトで <Tab> と <S-Tab> に割り当てられています
+  (変換中の Tab は無視され、直接入力では通常どおりタブが入ります)
 - registerWord: 変換候補を経由せず辞書登録プロンプトを開きます
   (補完メニューの [辞書登録] 項目と同じ動作)。insert モードでは
   フローティングウィンドウのプロンプト (中で補完メニューが使えます)、

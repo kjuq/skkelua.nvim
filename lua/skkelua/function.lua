@@ -41,6 +41,7 @@ function M.functions()
 			newline = common.newline,
 			cancel = common.cancel,
 			deletePreEdit = common.delete_pre_edit,
+			passThrough = common.pass_through,
 			purgeCandidate = common.purge_candidate,
 			-- disable
 			disable = disable.disable,

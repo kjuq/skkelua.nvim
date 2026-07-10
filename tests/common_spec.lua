@@ -67,6 +67,43 @@ t.test("C-w is mapped to deletePreEdit by default", function()
 	t.assert_true(vim.tbl_contains(require("skkelua").get_default_mapped_keys(), "<C-w>"))
 end)
 
+t.test("passThrough keeps conversion state on Tab", function()
+	setup_library()
+	local pass_through = require("skkelua.function.common").pass_through
+	local context = require("skkelua.context").new()
+
+	-- ▽ 変換入力中: 何も起きず状態も表示も変わらない
+	t.dispatch(context, "A")
+	t.assert_equals("▽あ", context:to_string())
+	pass_through(context, "\t")
+	t.assert_equals("▽あ", context:to_string())
+	t.assert_equals("input", context.state.type)
+	t.assert_equals("okurinasi", context.state.mode)
+
+	-- ▼ 候補選択中: 同じく無視
+	t.dispatch(context, " ")
+	t.assert_equals("▼い", context:to_string())
+	pass_through(context, "\t")
+	t.assert_equals("▼い", context:to_string())
+
+	-- 直接入力: キー本来の動作 (Tab 挿入) に任せるためそのまま通す
+	require("skkelua.function.common").kakutei(context)
+	context.preEdit:output(context:to_string())
+	pass_through(context, "\t")
+	t.assert_equals("\t", context.preEdit:output(""))
+end)
+
+t.test("Tab is mapped to passThrough by default", function()
+	local keymap = require("skkelua.keymap")
+	t.assert_equals("passThrough", keymap._get("input", "<tab>"))
+	t.assert_equals("passThrough", keymap._get("henkan", "<tab>"))
+	t.assert_equals("passThrough", keymap._get("input", "<s-tab>"))
+	t.assert_equals("passThrough", keymap._get("henkan", "<s-tab>"))
+	local keys = require("skkelua").get_default_mapped_keys()
+	t.assert_true(vim.tbl_contains(keys, "<Tab>"))
+	t.assert_true(vim.tbl_contains(keys, "<S-Tab>"))
+end)
+
 t.test("annotation", function()
 	local lib = setup_library()
 	local kakutei = require("skkelua.function.common").kakutei

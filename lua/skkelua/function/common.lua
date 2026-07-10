@@ -98,6 +98,22 @@ function M.kakutei_space(context)
 	context:kakutei(" ")
 end
 
+--- 変換中は何もせず、直接入力ではキー本来の動作に任せる。
+--- マップしないと pre-edit を壊す特殊キー (Tab など) の保護用
+---@param context skkelua.Context
+---@param key string
+function M.pass_through(context, key)
+	local state = context.state
+	if state.type == "input" and state.mode == "direct" then
+		-- 補完の選択挿入中 (バッファが候補 word に置き換わり、prevInput
+		-- 不一致で direct へリセット済み) もバッファを崩すため無視する
+		if require("skkelua.lsp").selected_word() then
+			return
+		end
+		context:kakutei(key)
+	end
+end
+
 --- 変換中の入力 (pre-edit) を全て削除する。
 --- 変換中でなければキー本来の動作 (単語削除など) に任せる
 ---@param context skkelua.Context

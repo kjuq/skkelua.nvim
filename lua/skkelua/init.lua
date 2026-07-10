@@ -447,6 +447,8 @@ function M.get_default_mapped_keys()
 		"<C-j>",
 		"<C-g>",
 		"<C-w>",
+		"<Tab>",
+		"<S-Tab>",
 		"<Esc>",
 	})
 	return keys
