@@ -55,6 +55,13 @@ MAPPINGS                                                    *skkelua-mappings*
 <Plug>(skkelua-toggle)                                *<Plug>(skkelua-toggle)*
 	skkelua の有効・無効を切り替えます。
 
+<Plug>(skkelua-persistent-toggle)          *<Plug>(skkelua-persistent-toggle)*
+	persistent mode (InsertEnter のたびに skkelua を自動有効化する
+	常駐モード) を切り替えます。normal モードからも使えます。
+>lua
+	vim.keymap.set("n", "<Space>tj", "<Plug>(skkelua-persistent-toggle)")
+<
+
 ------------------------------------------------------------------------------
 LUA API                                                      *skkelua-lua-api*
 
@@ -88,6 +95,21 @@ require("skkelua").phase()                                   *skkelua.phase()*
 		return "<C-y>"
 	end, { expr = true })
 <
+require("skkelua").toggle_persistent_mode()
+                                           *skkelua.toggle_persistent_mode()*
+	persistent mode を切り替えます。有効の間は InsertEnter のたびに
+	skkelua が自動有効化されます。切り替え時に状態を通知します。
+
+require("skkelua").enable_persistent_mode()
+                                           *skkelua.enable_persistent_mode()*
+require("skkelua").disable_persistent_mode()
+                                          *skkelua.disable_persistent_mode()*
+	persistent mode を明示的に有効化・無効化します (通知なし)。
+	無効化しても現在の skkelua の有効・無効は変わりません。
+
+require("skkelua").is_persistent_mode()         *skkelua.is_persistent_mode()*
+	persistent mode が有効かどうかを返します。statusline などに使えます。
+
 require("skkelua").register_keymap({state}, {key}, {func_name})
                                                    *skkelua.register_keymap()*
 	入力ステート ("input" | "henkan") のキーマップを登録します。
@@ -150,6 +172,8 @@ AUTOCMDS                                                    *skkelua-autocmds*
 		参照できます。
 	skkelua-handled
 		キー処理の完了後。
+	skkelua-persistent-enable / skkelua-persistent-disable
+		persistent mode の有効化・無効化時。
 
 ==============================================================================
 OPTIONS                                                      *skkelua-options*

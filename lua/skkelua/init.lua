@@ -402,6 +402,27 @@ function M.phase()
 	return require("skkelua.store").status.phase
 end
 
+--- persistent mode (InsertEnter ごとの自動有効化) を切り替える
+function M.toggle_persistent_mode()
+	require("skkelua.persistent").toggle()
+end
+
+--- persistent mode を有効化する
+function M.enable_persistent_mode()
+	require("skkelua.persistent").enable()
+end
+
+--- persistent mode を無効化する
+function M.disable_persistent_mode()
+	require("skkelua.persistent").disable()
+end
+
+--- persistent mode が有効かどうか
+---@return boolean
+function M.is_persistent_mode()
+	return require("skkelua.persistent").is_enabled()
+end
+
 --- デフォルトでマップされるキーのリスト (skkeleton#get_default_mapped_keys 相当)
 ---@return string[]
 function M.get_default_mapped_keys()

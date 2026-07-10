@@ -15,6 +15,13 @@ for _, mode in ipairs({ { "i", "c" }, { "t" } }) do
 	end
 end
 
+-- persistent mode (InsertEnter ごとの自動有効化) のトグル
+vim.keymap.set(
+	{ "n", "i", "c", "t" },
+	"<Plug>(skkelua-persistent-toggle)",
+	"<Cmd>lua require('skkelua').toggle_persistent_mode()<CR>"
+)
+
 -- Cause unexpected behavior when lmap is empty
 -- (enable action was failed)
 -- so makes dummy mapping

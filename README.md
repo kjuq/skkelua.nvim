@@ -57,12 +57,20 @@ require("skkelua").config({
 ユーザー辞書はデフォルトで `stdpath("data")/skkelua/jisyo`
 (通常 `~/.local/share/nvim/skkelua/jisyo`) に保存されます。
 
+insert に入るたび自動で skkelua を有効化する persistent mode も使えます。
+日本語を書き続ける間だけオンにしておく使い方です。
+
+```lua
+vim.keymap.set("n", "<Space>tj", "<Plug>(skkelua-persistent-toggle)")
+```
+
 現在の状態は Lua API で参照できます。
 
 ```lua
-require("skkelua").is_enabled() -- 有効かどうか
-require("skkelua").mode()       -- "hira" / "kata" / "hankata" / "zenkaku" / "abbrev" / ""
-require("skkelua").phase()      -- "input" / "input:okurinasi" / "input:okuriari" / "henkan" / ...
+require("skkelua").is_enabled()         -- 有効かどうか
+require("skkelua").mode()               -- "hira" / "kata" / "hankata" / "zenkaku" / "abbrev" / ""
+require("skkelua").phase()              -- "input" / "input:okurinasi" / "input:okuriari" / "henkan" / ...
+require("skkelua").is_persistent_mode() -- persistent mode が有効かどうか
 ```
 
 詳細は [doc/skkelua.txt](doc/skkelua.txt) を参照してください。
