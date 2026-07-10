@@ -93,6 +93,9 @@ M.config = {
 	mappedKeys = nil,
 	markerHenkan = "▽",
 	markerHenkanSelect = "▼",
+	-- Space を変換に使わず「変換中なら確定してから空白を入力」にする
+	-- (pum 補完で変換を確定する運用向け)
+	pureSpace = false,
 	registerConvertResult = false,
 	selectCandidateKeys = "asdfjkl",
 	setUndoPoint = true,
@@ -222,6 +225,7 @@ local validators = {
 	end,
 	markerHenkan = ensure_string("markerHenkan"),
 	markerHenkanSelect = ensure_string("markerHenkanSelect"),
+	pureSpace = ensure_bool("pureSpace"),
 	registerConvertResult = ensure_bool("registerConvertResult"),
 	selectCandidateKeys = function(x)
 		local keys = ensure_type(x, "string", "selectCandidateKeys")
@@ -283,6 +287,29 @@ end
 
 --- 設定を検証して反映する (setConfig 相当)
 ---@param new_config table<string, any>
+-- pureSpace の現在の適用状態 (値が変わった時だけ書き換え、
+-- config() の再呼び出しでユーザーの手動 register_keymap を壊さない)
+local pure_space_applied = false
+
+--- pureSpace を kana table と keymap へ反映する。
+--- Space 単体のエントリだけ差し替え、"z " (全角スペース) など
+--- feed 付きエントリは生かす
+local function apply_pure_space()
+	if M.config.pureSpace == pure_space_applied then
+		return
+	end
+	pure_space_applied = M.config.pureSpace
+	local keymap = require("skkelua.keymap")
+	local kana = require("skkelua.kana")
+	if M.config.pureSpace then
+		kana.register_kana_table(M.config.kanaTable, { [" "] = "kakuteiSpace" })
+		keymap.register_key_map("henkan", "<space>", "kakuteiSpace")
+	else
+		kana.register_kana_table(M.config.kanaTable, { [" "] = "henkanFirst" })
+		keymap.register_key_map("henkan", "<space>", "henkanForward")
+	end
+end
+
 function M.set_config(new_config)
 	if M.config.debug then
 		vim.print("skkelua: new config")
@@ -302,6 +329,8 @@ function M.set_config(new_config)
 	normalize()
 
 	require("skkelua.kana").load_kana_table_files(M.config.globalKanaTableFiles)
+
+	apply_pure_space()
 
 	-- indicator が起動済みなら新しい設定で表示を作り直す
 	require("skkelua.indicator").refresh()

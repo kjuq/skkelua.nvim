@@ -226,6 +226,13 @@ markerHenkan ("▽")
 	変換入力中のマーカー。
 markerHenkanSelect ("▼")
 	候補選択中のマーカー。
+pureSpace (false)
+	Space を変換に使わず「変換中なら確定してから空白を入力」のキーに
+	します (機能名 kakuteiSpace)。変換の開始・確定を補完メニュー
+	(|skkelua-completion|) で行う運用向けです。
+	有効にすると kana table の " " エントリと henkan キーマップの
+	<space> (候補送り) が置き換わります。"z " (全角スペース) など
+	feed 付きのエントリはそのまま使えます。
 registerConvertResult (false)
 	カタカナ変換等の結果をユーザー辞書に登録するかどうか。
 selectCandidateKeys ("asdfjkl")
@@ -265,6 +272,9 @@ in-process の LSP サーバー (|vim.lsp.start()| の cmd 関数) として実�
   ▽おく*る のまま補完メニューの第一候補を自動選択・挿入します。
   CTRL-P で選択を外すと変換前のひらがなに戻ります。
   insertOnSelect と併用してください
+
+変換の開始・確定を補完メニューだけで行う場合は、Space を変換に使わない
+pureSpace (|skkelua-options|) も合わせて有効にすると快適です。
 
 動作:
 - skkelua の有効化時にカレントバッファへ attach し、無効化で外れます
@@ -371,10 +381,10 @@ register_kanatable() でかな入力ルールを編集できます。
 		["xn"] = false,              -- 削除
 	})
 <
-指定できる機能名: kakutei, newline, cancel, deletePreEdit, purgeCandidate,
-disable, escape, henkanFirst, henkanForward, henkanBackward, henkanInput,
-registerWord, suffix, kakuteiFeed, henkanPoint, deleteChar, prefix, abbrev,
-hirakana, katakana, hankatakana, zenkaku
+指定できる機能名: kakutei, kakuteiSpace, newline, cancel, deletePreEdit,
+purgeCandidate, disable, escape, henkanFirst, henkanForward, henkanBackward,
+henkanInput, registerWord, suffix, kakuteiFeed, henkanPoint, deleteChar,
+prefix, abbrev, hirakana, katakana, hankatakana, zenkaku
 
 - deletePreEdit: 変換中の入力 (pre-edit) をマーカーごと全て削除します。
   補完メニューの選択挿入中は挿入された候補ごと削除します。

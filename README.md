@@ -110,6 +110,7 @@ require("skkelua").config({
 		insertOnSelect = true, -- 候補にフォーカスした時点で本文へ挿入する
 		deferOkuri = true, -- 送り仮名確定でも自動変換せず、第一候補を自動選択する
 	},
+	pureSpace = true, -- Space を変換に使わず「変換中なら確定 + 空白」にする
 })
 ```
 

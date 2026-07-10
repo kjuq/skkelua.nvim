@@ -37,6 +37,7 @@ function M.functions()
 		functions_cache = {
 			-- common
 			kakutei = common.kakutei_key,
+			kakuteiSpace = common.kakutei_space,
 			newline = common.newline,
 			cancel = common.cancel,
 			deletePreEdit = common.delete_pre_edit,

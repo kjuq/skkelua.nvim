@@ -86,6 +86,18 @@ function M.cancel(context)
 	end
 end
 
+--- 変換中なら確定してから空白を入力する (pureSpace 用)。
+--- kana table 経由でも keymap 経由でも呼ばれるため、キー引数には
+--- 依存せず空白固定で挿入する
+---@param context skkelua.Context
+function M.kakutei_space(context)
+	local state = context.state
+	if state.type == "henkan" or (state.type == "input" and state.mode ~= "direct") then
+		M.kakutei(context)
+	end
+	context:kakutei(" ")
+end
+
 --- 変換中の入力 (pre-edit) を全て削除する。
 --- 変換中でなければキー本来の動作 (単語削除など) に任せる
 ---@param context skkelua.Context
