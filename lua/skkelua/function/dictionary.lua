@@ -92,6 +92,19 @@ local function register_word_float(context)
 	local affix = state.affix
 	local shown = context.preEdit:shown() -- バッファに表示中の pre-edit
 
+	-- キャンセル時に変換入力状態 (▽よみ) を復元するためのキャプチャ
+	local saved = {
+		mode = state.mode,
+		henkanFeed = state.henkanFeed,
+		okuriFeed = state.okuriFeed,
+		feed = state.feed,
+		previousFeed = state.previousFeed,
+		converter = state.converter,
+		table = state.table,
+		directInput = state.directInput,
+		affix = state.affix,
+	}
+
 	-- handle の後処理がバッファへ出力しないよう、状態と表示追跡を空にする。
 	-- バッファ上の pre-edit はそのまま残し、確定時に自前の BS 列で置換する
 	require("skkelua.mode").initialize_state_with_abbrev(context)
@@ -110,16 +123,44 @@ local function register_word_float(context)
 		vim.cmd.redrawstatus()
 	end
 
+	--- cmdline 版のキャンセルと同様に、変換入力状態 (▽よみ) へ戻す。
+	--- バッファに残っている pre-edit を追跡し直してから復元後の表示へ置換する。
+	--- Note: enable が state を作り直すため、復元は back_to_window の後に行う
+	local function restore_henkan_input()
+		back_to_window()
+		local ctx = store.get_context()
+		for k, v in pairs(saved) do
+			ctx.state[k] = v
+		end
+		ctx.state.type = "input"
+		-- 手動復元では build_result を通らないため、補完 (make_completion_list)
+		-- が参照する公開ステータスも合わせて復元する
+		store.status.phase = saved.mode == "okuriari" and "input:okuriari" or "input:okurinasi"
+		store.status.henkanFeed = saved.henkanFeed
+		ctx.preEdit:sync(shown)
+		local keys = ctx.preEdit:output(ctx:to_string())
+		vim.api.nvim_feedkeys("a" .. keys, "nit", true)
+		-- タイプを伴わない復元では補完の autotrigger が働かないため、
+		-- キー処理が終わって insert に入ったところで明示的にトリガーする
+		vim.api.nvim_create_autocmd("SafeState", {
+			once = true,
+			callback = function()
+				require("skkelua.lsp").trigger()
+			end,
+		})
+	end
+
 	-- 呼び出し元のキー処理 (handle) が完了してからフロートを開く
 	vim.schedule(function()
 		require("skkelua.register_prompt").open({
 			title = title,
 			on_confirm = function(input)
-				back_to_window()
+				-- 空入力はキャンセル扱い (cmdline 版と同じ)
 				if input == "" then
-					vim.api.nvim_feedkeys("a", "nit", true)
+					restore_henkan_input()
 					return
 				end
+				back_to_window()
 				local lib = store.get_library()
 				lib:register_henkan_result(type_, midasi, input)
 				store.get_context().lastCandidate = {
@@ -133,11 +174,7 @@ local function register_word_float(context)
 				local bs = ("\b"):rep(vim.fn.strcharlen(shown))
 				vim.api.nvim_feedkeys("a" .. bs .. candidate .. okuri_str, "nit", true)
 			end,
-			on_cancel = function()
-				back_to_window()
-				-- pre-edit はただのテキストとして残る (変換状態は破棄済み)
-				vim.api.nvim_feedkeys("a", "nit", true)
-			end,
+			on_cancel = restore_henkan_input,
 		})
 	end)
 	return true

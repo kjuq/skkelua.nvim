@@ -507,6 +507,21 @@ function M.attach()
 	end
 end
 
+--- 現在のバッファで補完を明示的にトリガーする。
+--- autotrigger はトリガー文字のタイプでしか働かないため、辞書登録の
+--- キャンセルなどタイプを伴わずに pre-edit が復元された時に呼ぶ
+function M.trigger()
+	if not completion_config().enabled or vim.fn.mode() ~= "i" then
+		return
+	end
+	local buf = vim.api.nvim_get_current_buf()
+	local client = vim.lsp.get_clients({ name = CLIENT_NAME, bufnr = buf })[1]
+	if not client then
+		return
+	end
+	vim.lsp.completion.get()
+end
+
 --- 現在のバッファで補完を無効にする (skkelua-disable-post から呼ばれる)
 function M.detach()
 	local buf = vim.api.nvim_get_current_buf()

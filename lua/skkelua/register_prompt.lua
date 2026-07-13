@@ -72,6 +72,19 @@ function M.open(opts)
 		finish(opts.on_cancel)
 	end)
 
+	-- :fclose! などで外部からウィンドウを閉じられた場合もキャンセル扱いにする
+	-- (自前の close() 経由でも発火するが、done フラグで no-op になる)
+	vim.api.nvim_create_autocmd("WinClosed", {
+		pattern = tostring(win),
+		once = true,
+		callback = function()
+			-- イベント処理中のバッファ削除を避けるため schedule する
+			vim.schedule(function()
+				finish(opts.on_cancel)
+			end)
+		end,
+	})
+
 	-- skkelua を有効化する (skkelua-enable-post で LSP 補完もこの
 	-- バッファへ attach し、プロンプト内でも pum で変換できる)
 	require("skkelua").handle("enable", {})
