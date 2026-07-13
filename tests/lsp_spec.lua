@@ -396,6 +396,59 @@ t.test("deferOkuri keeps okuriari pre-edit and marks auto-select", function()
 end)
 
 
+t.test("completion works during suffix input", function()
+	local skkelua = require("skkelua")
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okurinasi", "けいざい", "経済")
+	lib:register_henkan_result("okurinasi", ">けい", "系")
+	lib:register_henkan_result("okurinasi", ">けい", "形")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- ▼経済 -> suffix -> ▽>けい (接尾辞入力)
+	local function fn(name)
+		skkelua._handle_request("handleKey", { ["function"] = name, key = { "" } }, {
+			mode = "",
+			prevInput = require("skkelua.store").get_context():to_string(),
+			completeInfo = {},
+			completeType = "",
+		})
+	end
+	for _, k in ipairs({ "K", "e", "i", "z", "a", "i" }) do
+		skkelua._handle_request("handleKey", { key = { k } }, {
+			mode = "",
+			prevInput = require("skkelua.store").get_context():to_string(),
+			completeInfo = {},
+			completeType = "",
+		})
+	end
+	fn("henkanFirst")
+	fn("suffix")
+	for _, k in ipairs({ "k", "e", "i" }) do
+		skkelua._handle_request("handleKey", { key = { k } }, {
+			mode = "",
+			prevInput = require("skkelua.store").get_context():to_string(),
+			completeInfo = {},
+			completeType = "",
+		})
+	end
+	local pre_edit = skkelua.get_pre_edit()
+	t.assert_equals("▽>けい", pre_edit)
+	place_pre_edit(pre_edit)
+
+	local list = require("skkelua.lsp")._make_completion_list()
+	local by_label = {}
+	for _, item in ipairs(list.items) do
+		by_label[item.label] = item
+	end
+	t.assert_true(by_label["系"] ~= nil)
+	t.assert_true(by_label["形"] ~= nil)
+	t.assert_equals(">けい", by_label["系"].data.midasi)
+	-- [辞書登録] も接尾辞の読みで出る
+	t.assert_equals(">けい", by_label["[辞書登録]"].detail)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
 t.test("register item appears alone for unknown reading", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })

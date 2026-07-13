@@ -167,7 +167,8 @@ end
 --- insertOnSelect の選択挿入はバッファ上の pre-edit を候補 word で
 --- 置き換えるため、その間に届いた再リクエストは pre-edit を見つけられない
 ---@param before_cursor string
----@return string?
+---@return string? word
+---@return table? data 候補の data (skkelua/midasi/word/type)
 local function selected_word(before_cursor)
 	if vim.fn.pumvisible() == 0 then
 		return nil
@@ -182,12 +183,13 @@ local function selected_word(before_cursor)
 	if not (item and vim.tbl_get(item, "data", "skkelua")) then
 		return nil
 	end
-	return word
+	return word, item.data
 end
 
 --- pum で選択中の自前候補の word が現在のカーソル前に挿入されていれば返す
---- (deletePreEdit が選択挿入中のテキストを削除対象にするために使う)
----@return string?
+--- (deletePreEdit の削除対象判定や、選択挿入中の接尾辞開始に使う)
+---@return string? word
+---@return table? data
 function M.selected_word()
 	local pos = vim.api.nvim_win_get_cursor(0)
 	local line = (vim.api.nvim_buf_get_lines(0, pos[1] - 1, pos[1], false) or {})[1] or ""

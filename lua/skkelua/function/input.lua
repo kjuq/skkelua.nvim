@@ -247,6 +247,21 @@ function M.prefix(context, key)
 		return
 	end
 
+	-- 補完メニューの選択挿入中の ">" は ▼ 選択中の > (suffix) に相当する。
+	-- 挿入中の候補を確定扱いで辞書登録し、接尾辞入力 (▽>) を開始する
+	if state.mode == "direct" then
+		local word, data = require("skkelua.lsp").selected_word()
+		if word then
+			if data and not data.register then
+				require("skkelua").complete_callback(data.midasi, data.word, data.type)
+			end
+			M.henkan_point(context)
+			M.accept_result(context, { ">", "" }, "")
+			context.state.affix = "suffix"
+			return
+		end
+	end
+
 	M.kana_input(context, key)
 end
 
