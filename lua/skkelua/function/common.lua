@@ -24,6 +24,13 @@ function M.kakutei(context)
 	elseif state.type == "input" then
 		require("skkelua.function.input").kakutei_feed(context)
 		local result = state.henkanFeed .. state.okuriFeed .. state.feed
+		-- 接頭辞・接尾辞入力のマーカー ">" は見出し検索用のもので、
+		-- 候補を選ばないかな確定の文字列には含めない
+		if state.affix == "suffix" then
+			result = result:gsub("^>", "")
+		elseif state.affix == "prefix" then
+			result = result:gsub(">$", "")
+		end
 		if state.converter then
 			result = state.converter(result)
 		end

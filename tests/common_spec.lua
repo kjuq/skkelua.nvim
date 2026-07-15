@@ -104,6 +104,41 @@ t.test("Tab is mapped to passThrough by default", function()
 	t.assert_true(vim.tbl_contains(keys, "<S-Tab>"))
 end)
 
+t.test("kana commit drops the affix marker", function()
+	setup_library()
+	local kakutei = require("skkelua.function.common").kakutei
+
+	-- 接尾辞入力 (▽>けい) のかな確定は「けい」だけになる
+	local context = require("skkelua.context").new()
+	context.state.mode = "okurinasi"
+	context.state.henkanFeed = ">けい"
+	context.state.affix = "suffix"
+	kakutei(context)
+	t.assert_equals("けい", context.preEdit:output(""))
+
+	-- ▽> 単独の確定では何も残らない
+	context = require("skkelua.context").new()
+	context.state.mode = "okurinasi"
+	context.state.henkanFeed = ">"
+	context.state.affix = "suffix"
+	kakutei(context)
+	t.assert_equals("", context.preEdit:output(""))
+
+	-- 接頭辞入力 (▽こう>) は末尾の > が落ちる
+	context = require("skkelua.context").new()
+	context.state.mode = "okurinasi"
+	context.state.henkanFeed = "こう>"
+	context.state.affix = "prefix"
+	kakutei(context)
+	t.assert_equals("こう", context.preEdit:output(""))
+
+	-- 接辞でない通常のかな確定は変わらない
+	context = require("skkelua.context").new()
+	t.dispatch(context, "A")
+	kakutei(context)
+	t.assert_equals("あ", context.preEdit:output(""))
+end)
+
 t.test("annotation", function()
 	local lib = setup_library()
 	local kakutei = require("skkelua.function.common").kakutei
