@@ -84,7 +84,7 @@ require("skkelua").phase()                                   *skkelua.phase()*
 	"escape" / ""
 	変換中かどうかでキーの挙動を変えたい場合に使えます:
 >lua
-	vim.keymap.set("i", "<C-y>", function()
+	vim.keymap.set("i", "<C-l>", function()
 		local phase = require("skkelua").phase()
 		if vim.tbl_contains(
 			{ "input:okurinasi", "input:okuriari", "henkan" }, phase)
@@ -92,9 +92,11 @@ require("skkelua").phase()                                   *skkelua.phase()*
 			require("skkelua").handle("handleKey", { ["function"] = "kakutei" })
 			return ""
 		end
-		return "<C-y>"
+		return "<C-l>"
 	end, { expr = true })
 <
+	Note: <C-y> には同等の動作がデフォルトで割り当てられています
+	(kakuteiPassThrough、|skkelua-kanatable| 参照)。
 require("skkelua").toggle_persistent_mode()
                                            *skkelua.toggle_persistent_mode()*
 	persistent mode を切り替えます。有効の間は InsertEnter のたびに
@@ -290,6 +292,8 @@ pureSpace (|skkelua-options|) も合わせて有効にすると快適です。
   補完メニューに候補が出ます
 - 候補は |v:completed_item| 確定時 (CTRL-Y など) に pre-edit ごと置換され、
   ユーザー辞書へ登録されます (以後の候補順に反映されます)
+- 候補を未選択のまま CTRL-Y を押すと、変換せずかなのまま確定します
+  (デフォルトマップの kakuteiPassThrough、|skkelua-kanatable| 参照)
 - 候補の並びは変換と同じ辞書順 (ユーザー辞書 -> グローバル辞書のマージ順)
   です
 - 候補の末尾には常に [辞書登録] 項目が並びます。確定すると
@@ -307,9 +311,11 @@ pureSpace (|skkelua-options|) も合わせて有効にすると快適です。
   Note: cmdline モード中の変換からの登録は従来どおり |input()| の
   プロンプトです
 
-Note: 表示中の補完メニューの操作 (CTRL-N/CTRL-P/CTRL-Y) は Neovim 標準の
-ins-completion です。mappedKeys やバッファローカルマップで同じキーを
-skkelua に割り当てている場合は、|pumvisible()| で分岐してください。
+Note: 表示中の補完メニューの操作 (CTRL-N/CTRL-P) は Neovim 標準の
+ins-completion です。CTRL-Y はデフォルトで skkelua が処理し、候補選択済み
+なら補完の確定へパススルー、未選択ならかな確定になります
+(kakuteiPassThrough)。mappedKeys やバッファローカルマップで CTRL-N/CTRL-P
+を skkelua に割り当てている場合は、|pumvisible()| で分岐してください。
 
 Note: |vim.lsp.completion.enable()| は最初にバッファの補完状態を作った
 呼び出しの opts で動作が固定されます。skkelua が有効なバッファに対して
@@ -395,11 +401,17 @@ register_kanatable() でかな入力ルールを編集できます。
 		["xn"] = false,              -- 削除
 	})
 <
-指定できる機能名: kakutei, kakuteiSpace, newline, cancel, deletePreEdit,
-passThrough, purgeCandidate, disable, escape, henkanFirst, henkanForward,
-henkanBackward, henkanInput, registerWord, suffix, kakuteiFeed, henkanPoint,
-deleteChar, prefix, abbrev, hirakana, katakana, hankatakana, zenkaku
+指定できる機能名: kakutei, kakuteiPassThrough, kakuteiSpace, newline, cancel,
+deletePreEdit, passThrough, purgeCandidate, disable, escape, henkanFirst,
+henkanForward, henkanBackward, henkanInput, registerWord, suffix, kakuteiFeed,
+henkanPoint, deleteChar, prefix, abbrev, hirakana, katakana, hankatakana,
+zenkaku
 
+- kakuteiPassThrough: 変換中は確定し、直接入力ではキー本来の動作に
+  任せます。デフォルトで <C-y> に割り当てられており、補完メニューで
+  候補を選択済みの場合は補完の確定 (native の CTRL-Y など) に
+  パススルーします。変換入力中 (▽) に候補未選択のまま押すと
+  変換せずかなのまま確定します
 - deletePreEdit: 変換中の入力 (pre-edit) をマーカーごと全て削除します。
   補完メニューの選択挿入中は挿入された候補ごと削除します。
   変換中でなければキー本来の動作 (単語削除など) に任せます。

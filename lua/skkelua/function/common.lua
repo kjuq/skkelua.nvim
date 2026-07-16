@@ -105,6 +105,21 @@ function M.kakutei_space(context)
 	context:kakutei(" ")
 end
 
+--- 変換中なら確定し、直接入力ではキー本来の動作に任せる (<C-y> 用)。
+--- 補完候補の選択中は handle_impl が native の確定へパススルーするため
+--- ここへは来ない。判定をすり抜けても direct 分岐が生キーを feed するので
+--- native の確定として動作する
+---@param context skkelua.Context
+---@param key string
+function M.kakutei_pass_through(context, key)
+	local state = context.state
+	if state.type == "input" and state.mode == "direct" then
+		context:kakutei(key)
+		return
+	end
+	M.kakutei(context)
+end
+
 --- 変換中は何もせず、直接入力ではキー本来の動作に任せる。
 --- マップしないと pre-edit を壊す特殊キー (Tab など) の保護用
 ---@param context skkelua.Context

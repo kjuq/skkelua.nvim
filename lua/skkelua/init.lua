@@ -134,22 +134,33 @@ local function is_opts(opts)
 	return type(opts) == "table" and type(opts.key) == "table"
 end
 
+--- complete_type ごとの補完確定キー・コマンド
+---@param complete_type string
+---@return string?
+local function native_confirm_key(complete_type)
+	if complete_type == "native" then
+		return require("skkelua.notation").notation_to_key["<c-y>"]
+	elseif complete_type == "pum.vim" then
+		return "<Cmd>call pum#map#confirm()"
+	elseif complete_type == "cmp" then
+		return "<Cmd>lua require('cmp').confirm({select = true})"
+	end
+	return nil
+end
+
 ---@param completed boolean
 ---@param complete_type string
 ---@param notation_str string
 ---@return string?
 local function handle_complete_key(completed, complete_type, notation_str)
 	local config = require("skkelua.config").config
-	if notation_str == "<cr>" then
-		if completed and config.eggLikeNewline then
-			if complete_type == "native" then
-				return require("skkelua.notation").notation_to_key["<c-y>"]
-			elseif complete_type == "pum.vim" then
-				return "<Cmd>call pum#map#confirm()"
-			elseif complete_type == "cmp" then
-				return "<Cmd>lua require('cmp').confirm({select = true})"
-			end
-		end
+	if notation_str == "<cr>" and completed and config.eggLikeNewline then
+		return native_confirm_key(complete_type)
+	end
+	-- 選択済み候補の <C-y> は補完の確定に任せる
+	-- (未選択なら keymap の kakuteiPassThrough に落ちてかな確定になる)
+	if notation_str == "<c-y>" and completed then
+		return native_confirm_key(complete_type)
 	end
 	return nil
 end
@@ -447,6 +458,7 @@ function M.get_default_mapped_keys()
 		"<C-j>",
 		"<C-g>",
 		"<C-w>",
+		"<C-y>",
 		"<Tab>",
 		"<S-Tab>",
 		"<Esc>",
