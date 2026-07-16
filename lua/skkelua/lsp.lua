@@ -12,23 +12,24 @@ local function completion_config()
 	return require("skkelua.config").config.completion
 end
 
---- insertOnSelect 用に buffer-local 'completeopt' を調整する。
---- 選択と同時に挿入するには noinsert が外れている必要があり、
+--- buffer-local 'completeopt' を調整する。
+--- 候補が 1 つだけでも pum を出すよう常に menuone を足す
+--- (noselect は menu/menuone との併用でしか効かない)。
+--- insertOnSelect では選択と同時に挿入するために noinsert を外し、
 --- タイプ中に第一候補が勝手に入らないよう通常は noselect を足す。
 --- auto_select (送り仮名確定直後) の応答では noselect も外し、
 --- 第一候補が自動選択 + 挿入されるようにする
 ---@param buf integer
 ---@param auto_select? boolean
 local function set_completeopt(buf, auto_select)
-	if not completion_config().insertOnSelect then
-		return
-	end
-	local values = {}
-	if not auto_select then
+	local instant_insert = completion_config().insertOnSelect
+	local values = { "menuone" }
+	if instant_insert and not auto_select then
 		values[#values + 1] = "noselect"
 	end
 	for _, o in ipairs(vim.opt_global.completeopt:get()) do
-		if o ~= "noinsert" and o ~= "noselect" then
+		local drop = o == "menuone" or (instant_insert and (o == "noinsert" or o == "noselect"))
+		if not drop then
 			values[#values + 1] = o
 		end
 	end

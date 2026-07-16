@@ -94,6 +94,12 @@ t.test("completion list for henkan input", function()
 	-- 「かんが」は「かんじ」の前方一致ではないので出ない
 	t.assert_equals(nil, by_label["考"])
 
+	-- insertOnSelect 無効でも menuone は buffer-local に足される
+	-- (noselect/noinsert はグローバル値のまま)
+	local copt = vim.api.nvim_get_option_value("completeopt", { buf = 0 })
+	t.assert_true(copt:find("menuone") ~= nil, "menuone should be added")
+	t.assert_true(not copt:find("noselect"), "noselect should not be added")
+
 	vim.cmd.bwipeout({ bang = true })
 end)
 
@@ -389,9 +395,10 @@ t.test("deferOkuri keeps okuriari pre-edit and marks auto-select", function()
 	t.assert_equals("贈る", first.textEdit.newText)
 	t.assert_equals("00001", first.sortText)
 	t.assert_equals(nil, first.filterText)
-	-- auto-select 応答では completeopt から noselect が外れる
+	-- auto-select 応答では completeopt から noselect が外れる (menuone は残る)
 	local copt = vim.api.nvim_get_option_value("completeopt", { buf = 0 })
 	t.assert_true(not copt:find("noselect"), "noselect should be dropped for auto-select")
+	t.assert_true(copt:find("menuone") ~= nil, "menuone should be added")
 	vim.cmd.bwipeout({ bang = true })
 end)
 
