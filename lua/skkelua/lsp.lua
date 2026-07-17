@@ -187,6 +187,14 @@ local function selected_word(before_cursor)
 	return word, item.data
 end
 
+--- complete_info() の item が skkelua の [辞書登録] 項目かどうか
+---@param pum_item? table
+---@return boolean
+function M.is_register_item(pum_item)
+	local data = vim.tbl_get(pum_item or {}, "user_data", "nvim", "lsp", "completion_item", "data")
+	return type(data) == "table" and data.skkelua == true and data.register == true
+end
+
 --- pum で選択中の自前候補の word が現在のカーソル前に挿入されていれば返す
 --- (deletePreEdit の削除対象判定や、選択挿入中の接尾辞開始に使う)
 ---@return string? word

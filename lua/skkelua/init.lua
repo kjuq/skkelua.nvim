@@ -97,7 +97,8 @@ local function complete_info()
 			return "cmp", { pum_visible = true, selected = selected and 1 or -1 }
 		end
 	end
-	return "native", vim.fn.complete_info({ "pum_visible", "selected" })
+	-- items は選択中の [辞書登録] 項目の判定 (handle_impl) に使う
+	return "native", vim.fn.complete_info({ "pum_visible", "selected", "items" })
 end
 
 ---@class skkelua.VimStatus
@@ -199,8 +200,17 @@ local function handle_impl(opts, vim_status)
 			notation_str
 		)
 		if type(handled) == "string" then
-			require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
-			context.preEdit:output("")
+			-- [辞書登録] 項目の確定はバッファを変えず、CompleteDone からの
+			-- registerWord が変換入力の続きとして実行されるため状態を保つ
+			local info = vim_status.completeInfo
+			local sel_item
+			if (info.selected or -1) >= 0 and type(info.items) == "table" then
+				sel_item = info.items[info.selected + 1]
+			end
+			if not require("skkelua.lsp").is_register_item(sel_item) then
+				require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
+				context.preEdit:output("")
+			end
 			return handled
 		end
 	end

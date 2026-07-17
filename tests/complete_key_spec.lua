@@ -59,6 +59,31 @@ t.test("<C-y> with cmp selection returns cmp confirm command", function()
 	t.assert_equals("<Cmd>lua require('cmp').confirm({select = true})", ret.result)
 end)
 
+t.test("<C-y> on the selected [辞書登録] item keeps the henkan input state", function()
+	local skkelua = require("skkelua")
+	setup_henkan_input()
+
+	-- [辞書登録] の挿入テキストは pre-edit そのものでバッファは変わらず、
+	-- CompleteDone からの registerWord が変換入力の続きとして実行される。
+	-- 確定キーへのパススルー時に状態をリセットしてはいけない
+	local items = {
+		{
+			word = "▽かんじ",
+			user_data = {
+				nvim = {
+					lsp = {
+						completion_item = { data = { skkelua = true, register = true } },
+					},
+				},
+			},
+		},
+	}
+	local ret = handle_key("<c-y>", { pum_visible = 1, selected = 0, items = items }, "native")
+	t.assert_equals(CTRL_Y, ret.result)
+	t.assert_equals("input:okurinasi", ret.state.phase)
+	t.assert_equals("▽かんじ", skkelua.get_pre_edit())
+end)
+
 t.test("<C-y> in direct input passes the key through", function()
 	local skkelua = require("skkelua")
 	skkelua._handle_request("enable", {}, vim_status)
