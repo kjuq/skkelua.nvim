@@ -109,3 +109,51 @@ t.test("buffer local maps are restored after disable", function()
 		t.assert_equals("にほんごXXX", vim.fn.getline(1))
 	end)
 end)
+
+t.test("nested registration via the float prompt", function()
+	local lib = require("skkelua.store").get_library()
+	local prompt = require("skkelua.register_prompt")
+	-- Note: with_buffer は使わない。プロンプトのフロートにフォーカスが
+	--       ある状態で bwipeout! すると scratch でなくプロンプトの
+	--       バッファを消してしまうため、後始末を自前で行う
+	vim.cmd.enew({ bang = true })
+	vim.cmd("inoremap <buffer> J <Cmd>lua require('skkelua').handle('enable', {})<CR>")
+	local scratch = vim.api.nvim_get_current_buf()
+	local ok, err = pcall(function()
+		-- 辞書に無い読みで変換 -> 登録プロンプトが開く
+		feed("iJSoto ")
+		vim.wait(500, function()
+			return prompt._current() ~= nil
+		end, 10)
+		local outer = prompt._current()
+		t.assert_true(outer ~= nil, "outer prompt should open")
+
+		-- プロンプト内でさらに辞書に無い読みを変換 -> ネストして積まれる
+		feed(vim.fn.mode() == "i" and "Naka " or "aNaka ")
+		vim.wait(500, function()
+			local cur = prompt._current()
+			return cur ~= nil and cur.win ~= outer.win
+		end, 10)
+		local inner = prompt._current()
+		t.assert_true(inner ~= nil and inner.win ~= outer.win, "nested prompt should open")
+		t.assert_true(vim.api.nvim_win_is_valid(outer.win), "outer should stay open")
+		t.assert_equals({ "> ▽なか" }, vim.api.nvim_buf_get_lines(outer.buf, 0, -1, false))
+
+		-- ネスト側の確定で辞書登録され、外側プロンプトへ復帰する
+		-- (headless では <CR> を撃てないため _confirm で確定する。
+		--  外側バッファの pre-edit 置換は feedkeys 経由のため見ない)
+		prompt._confirm("中")
+		vim.wait(500, function()
+			return #lib:get_henkan_result("okurinasi", "なか") > 0
+		end, 10)
+		t.assert_equals({ "中" }, lib:get_henkan_result("okurinasi", "なか"))
+		t.assert_equals(outer.win, prompt._current().win)
+	end)
+	-- プロンプトが残ると後続テストを汚すため必ず閉じる
+	prompt._close()
+	vim.cmd("stopinsert")
+	pcall(vim.api.nvim_buf_delete, scratch, { force = true })
+	if not ok then
+		error(err, 0)
+	end
+end)

@@ -487,16 +487,18 @@ t.test("register item is hidden while okuri is undetermined", function()
 	vim.cmd.bwipeout({ bang = true })
 end)
 
-t.test("register item is hidden inside the prompt buffer", function()
+t.test("register item appears inside the prompt buffer", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })
 	skkelua._handle_request("enable", {}, vim_status)
 
-	-- 登録プロンプト (buftype=prompt) の中ではネスト防止のため出さない
+	-- 登録プロンプト (buftype=prompt) の中でもネスト登録用に出す
 	setup_state({ "N", "u", "n", "u" })
 	vim.bo.buftype = "prompt"
 	local list = require("skkelua.lsp")._make_completion_list()
-	t.assert_equals(0, #list.items)
+	t.assert_equals(1, #list.items)
+	t.assert_equals("[辞書登録]", list.items[1].label)
+	t.assert_true(list.items[1].data.register, "register item should appear")
 	vim.bo.buftype = ""
 	vim.cmd.bwipeout({ bang = true })
 end)

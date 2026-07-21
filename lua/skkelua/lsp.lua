@@ -332,10 +332,10 @@ local function make_completion_list()
 
 	-- 新しい読みを登録する項目を末尾に置く (候補が無い読みでも pum が開く)。
 	-- 挿入テキストは pre-edit 自身にして、フォーカスや確定でバッファが
-	-- 変わらないようにする。確定すると CompleteDone から登録プロンプトが開く。
-	-- Note: 登録プロンプト (buftype=prompt) の中ではネストを防ぐため出さない
+	-- 変わらないようにする。確定すると CompleteDone から登録プロンプトが開く
+	-- (登録プロンプトの中ではネストしたプロンプトが積まれる)。
 	local state = require("skkelua.store").get_context().state
-	local registrable = vim.bo[buf].buftype ~= "prompt"
+	local registrable = true
 	local midasi
 	if phase == "henkan" then
 		midasi = state.word

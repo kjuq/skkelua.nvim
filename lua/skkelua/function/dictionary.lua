@@ -91,6 +91,9 @@ local function register_word_float(context)
 	local okuri_str = state.converter and state.converter(state.okuriFeed) or state.okuriFeed
 	local affix = state.affix
 	local shown = context.preEdit:shown() -- バッファに表示中の pre-edit
+	-- pre-edit 直後の挿入位置 (この時点では insert 中でカーソルは pre-edit の
+	-- 直後にある)。確定・キャンセル時の置換はこの位置を基準に行う
+	local anchor = vim.api.nvim_win_get_cursor(win)
 
 	-- キャンセル時に変換入力状態 (▽よみ) を復元するためのキャプチャ
 	local saved = {
@@ -106,28 +109,66 @@ local function register_word_float(context)
 	}
 
 	-- handle の後処理がバッファへ出力しないよう、状態と表示追跡を空にする。
-	-- バッファ上の pre-edit はそのまま残し、確定時に自前の BS 列で置換する
+	-- バッファ上の pre-edit はそのまま残し、確定・キャンセル時に
+	-- replace_pre_edit で置換する
 	require("skkelua.mode").initialize_state_with_abbrev(context)
 	context.preEdit:sync("")
 	store.init_context()
 
 	--- 元のウィンドウへ戻り、skkelua を有効化し直す。
 	--- フロートへの移動時にバッファ離脱の自動 disable が走っているため、
-	--- 正規の enable フローで補完の attach ごと復活させる
+	--- 正規の enable フローで補完の attach ごと復活させる。
+	--- ネスト登録では win が外側プロンプトのフロートになるため、外側ごと
+	--- 閉じられて復帰先が失われている場合は何もしない
+	---@return boolean 元のウィンドウへ戻れた場合 true
 	local function back_to_window()
-		if vim.api.nvim_win_is_valid(win) then
-			vim.api.nvim_set_current_win(win)
+		if not vim.api.nvim_win_is_valid(win) then
+			return false
 		end
+		vim.api.nvim_set_current_win(win)
 		require("skkelua").handle("enable", {})
 		require("skkelua.mode").mode_change(store.get_context(), mode)
 		vim.cmd.redrawstatus()
+		return true
+	end
+
+	--- バッファに残っている pre-edit の表示を text へ置き換え、その直後から
+	--- insert を再開する。復帰のタイミングによってモードもウィンドウの
+	--- カーソル位置も一定せず、また skkelua の有効なバッファへ生のキー列を
+	--- 流すと補完の autotrigger が空の変換状態で走って表示を壊すため、
+	--- feedkeys ではなくキャプチャ済みの位置へのバッファ編集で置き換える
+	---@param text string
+	local function replace_pre_edit(text)
+		local buf = vim.api.nvim_win_get_buf(win)
+		local row = anchor[1]
+		local start_col = anchor[2] - #shown
+		vim.api.nvim_buf_set_text(buf, row - 1, start_col, row - 1, anchor[2], { text })
+		local insert_col = start_col + #text
+		if vim.fn.mode():match("^i") then
+			vim.api.nvim_win_set_cursor(win, { row, insert_col })
+			return
+		end
+		local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
+		vim.api.nvim_win_set_cursor(win, { row, math.min(insert_col, math.max(#line - 1, 0)) })
+		if insert_col >= #line then
+			-- 行末: "A" 相当で直後から insert に入る。プロンプトバッファは
+			-- ウィンドウ復帰時に insert を自動復元する (:h prompt-buffer) ため、
+			-- キー ("a") を送ると復元後の insert に文字として入ってしまう。
+			-- startinsert なら restart_edit の上書きになり位置も確定する
+			vim.cmd("startinsert!")
+		else
+			-- 行中: 挿入位置の文字の直前から insert に入る
+			vim.cmd("startinsert")
+		end
 	end
 
 	--- cmdline 版のキャンセルと同様に、変換入力状態 (▽よみ) へ戻す。
 	--- バッファに残っている pre-edit を追跡し直してから復元後の表示へ置換する。
 	--- Note: enable が state を作り直すため、復元は back_to_window の後に行う
 	local function restore_henkan_input()
-		back_to_window()
+		if not back_to_window() then
+			return
+		end
 		local ctx = store.get_context()
 		for k, v in pairs(saved) do
 			ctx.state[k] = v
@@ -137,9 +178,9 @@ local function register_word_float(context)
 		-- が参照する公開ステータスも合わせて復元する
 		store.status.phase = saved.mode == "okuriari" and "input:okuriari" or "input:okurinasi"
 		store.status.henkanFeed = saved.henkanFeed
-		ctx.preEdit:sync(shown)
-		local keys = ctx.preEdit:output(ctx:to_string())
-		vim.api.nvim_feedkeys("a" .. keys, "nit", true)
+		-- 表示中の pre-edit を復元後の表示 (通常は同一) へ置き換え、追跡を合わせる
+		replace_pre_edit(ctx:to_string())
+		ctx.preEdit:sync(ctx:to_string())
 		-- タイプを伴わない復元では補完の autotrigger が働かないため、
 		-- キー処理が終わって insert に入ったところで明示的にトリガーする
 		vim.api.nvim_create_autocmd("SafeState", {
@@ -160,19 +201,20 @@ local function register_word_float(context)
 					restore_henkan_input()
 					return
 				end
-				back_to_window()
+				-- 復帰先ウィンドウが失われていても辞書登録自体は行う
 				local lib = store.get_library()
 				lib:register_henkan_result(type_, midasi, input)
+				if not back_to_window() then
+					return
+				end
 				store.get_context().lastCandidate = {
 					type = type_,
 					word = midasi,
 					candidate = input,
 				}
 				local candidate = require("skkelua.candidate").modify_candidate(input, affix) or input
-				-- normal に戻っているので "a" で pre-edit 直後から insert に
-				-- 入り、表示中だった pre-edit を消して登録結果に置き換える
-				local bs = ("\b"):rep(vim.fn.strcharlen(shown))
-				vim.api.nvim_feedkeys("a" .. bs .. candidate .. okuri_str, "nit", true)
+				-- 表示中だった pre-edit を消して登録結果に置き換える
+				replace_pre_edit(candidate .. okuri_str)
 			end,
 			on_cancel = restore_henkan_input,
 		})
