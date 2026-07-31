@@ -29,6 +29,25 @@ t.test("henkan pipeline on real buffer", function()
 	end)
 end)
 
+t.test("<S-CR> commits pre-edit input like <CR>", function()
+	with_buffer(function()
+		-- ▽かんじ の状態のまま <S-CR> を押しても <CR> と同様にかな確定される
+		feed("iJKanji<S-CR>")
+		t.assert_equals({ "かんじ", "" }, vim.fn.getline(1, "$"))
+	end)
+end)
+
+t.test("<S-CR> commits henkan candidate like <CR>", function()
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okurinasi", "かんじ", "漢字")
+
+	with_buffer(function()
+		-- 変換して <S-CR> で確定
+		feed("iJKanji <S-CR>")
+		t.assert_equals({ "漢字", "" }, vim.fn.getline(1, "$"))
+	end)
+end)
+
 t.test("okuriari henkan on real buffer", function()
 	local lib = require("skkelua.store").get_library()
 	lib:register_henkan_result("okuriari", "おくr", "送")

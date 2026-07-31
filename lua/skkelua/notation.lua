@@ -18,7 +18,7 @@ local function init()
 	--       key_to_notation の逆引きはこのリストの順で先勝ちとし、
 	--       keymap.lua が使う表記 (<cr>/<nl>/<bs>/<tab>...) が選ばれるようにする
 	local names = {
-		"<nul>", "<bs>", "<tab>", "<s-tab>", "<nl>", "<ff>", "<cr>", "<return>",
+		"<nul>", "<bs>", "<tab>", "<s-tab>", "<nl>", "<ff>", "<cr>", "<s-cr>", "<return>",
 		"<esc>", "<space>", "<s-space>", "<c-space>", "<lt>", "<bslash>", "<bar>",
 		"<del>", "<csi>", "<xcsi>", "<eol>", "<up>", "<down>", "<left>", "<right>",
 		"<s-up>", "<s-down>", "<s-left>", "<s-right>", "<c-left>", "<c-right>",
