@@ -468,15 +468,14 @@ local function restore_completeopt(buf)
 end
 
 --- ASCII 混じり pre-edit ではフィルタを通すため label に pre-edit を
---- 前置している。pum の表示 (abbr) は候補そのものへ戻す
+--- 前置している。pum の表示 (abbr) は候補そのものへ戻す。
+--- また detail (見出し) はクライアントが info に写し、'completeopt' の
+--- popup で候補選択のたびにフロートとして出てしまうため、常に空へ戻す
 ---@param item table lsp.CompletionItem
 ---@return table
 local function convert_item(item)
 	local display = vim.tbl_get(item, "data", "display")
-	if display then
-		return { abbr = display }
-	end
-	return {}
+	return { info = "", abbr = display }
 end
 
 ---@param client_id integer
