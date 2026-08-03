@@ -76,8 +76,10 @@ t.test("send multiple keys into handleKey", function()
 	t.assert_equals("▼思う", store.get_context():to_string())
 end)
 
-t.test("<s-cr> is mapped to newline in both input and henkan states", function()
+t.test("modified <cr> variants are mapped to newline in both input and henkan states", function()
 	local keymap = require("skkelua.keymap")
-	t.assert_equals("newline", keymap._get("input", "<s-cr>"))
-	t.assert_equals("newline", keymap._get("henkan", "<s-cr>"))
+	for _, key in ipairs({ "<s-cr>", "<c-cr>", "<m-cr>" }) do
+		t.assert_equals("newline", keymap._get("input", key))
+		t.assert_equals("newline", keymap._get("henkan", key))
+	end
 end)

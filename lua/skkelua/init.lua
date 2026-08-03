@@ -464,6 +464,8 @@ function M.get_default_mapped_keys()
 		"<C-h>",
 		"<CR>",
 		"<S-CR>",
+		"<C-CR>",
+		"<M-CR>",
 		"<Space>",
 		"<C-q>",
 		"<C-j>",

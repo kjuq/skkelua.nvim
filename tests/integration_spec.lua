@@ -29,24 +29,26 @@ t.test("henkan pipeline on real buffer", function()
 	end)
 end)
 
-t.test("<S-CR> commits pre-edit input like <CR>", function()
-	with_buffer(function()
-		-- ▽かんじ の状態のまま <S-CR> を押しても <CR> と同様にかな確定される
-		feed("iJKanji<S-CR>")
-		t.assert_equals({ "かんじ", "" }, vim.fn.getline(1, "$"))
+for _, key in ipairs({ "<S-CR>", "<C-CR>", "<M-CR>" }) do
+	t.test(("%s commits pre-edit input like <CR>"):format(key), function()
+		with_buffer(function()
+			-- ▽かんじ の状態のまま押しても <CR> と同様にかな確定される
+			feed("iJKanji" .. key)
+			t.assert_equals({ "かんじ", "" }, vim.fn.getline(1, "$"))
+		end)
 	end)
-end)
 
-t.test("<S-CR> commits henkan candidate like <CR>", function()
-	local lib = require("skkelua.store").get_library()
-	lib:register_henkan_result("okurinasi", "かんじ", "漢字")
+	t.test(("%s commits henkan candidate like <CR>"):format(key), function()
+		local lib = require("skkelua.store").get_library()
+		lib:register_henkan_result("okurinasi", "かんじ", "漢字")
 
-	with_buffer(function()
-		-- 変換して <S-CR> で確定
-		feed("iJKanji <S-CR>")
-		t.assert_equals({ "漢字", "" }, vim.fn.getline(1, "$"))
+		with_buffer(function()
+			-- 変換して確定
+			feed("iJKanji " .. key)
+			t.assert_equals({ "漢字", "" }, vim.fn.getline(1, "$"))
+		end)
 	end)
-end)
+end
 
 t.test("okuriari henkan on real buffer", function()
 	local lib = require("skkelua.store").get_library()
