@@ -75,11 +75,3 @@ t.test("send multiple keys into handleKey", function()
 	skkelua._handle_request("handleKey", { key = { "O", "m", "o", "U" } }, vim_status)
 	t.assert_equals("▼思う", store.get_context():to_string())
 end)
-
-t.test("modified <cr> variants are mapped to newline in both input and henkan states", function()
-	local keymap = require("skkelua.keymap")
-	for _, key in ipairs({ "<s-cr>", "<c-cr>", "<m-cr>" }) do
-		t.assert_equals("newline", keymap._get("input", key))
-		t.assert_equals("newline", keymap._get("henkan", key))
-	end
-end)

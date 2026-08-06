@@ -260,6 +260,7 @@ local function enable(opts, vim_status)
 	require("skkelua.option").save_and_set()
 	M.map()
 	store.status.enabled = true
+	require("skkelua.guard").attach()
 	local mode_fn = require("skkelua.function").mode_functions()[store.variables.lastMode]
 	if mode_fn then
 		mode_fn(context, "")
@@ -463,14 +464,12 @@ function M.get_default_mapped_keys()
 		"<BS>",
 		"<C-h>",
 		"<CR>",
-		"<S-CR>",
-		"<C-CR>",
-		"<M-CR>",
 		"<Space>",
 		"<C-q>",
 		"<C-j>",
 		"<C-g>",
 		"<C-w>",
+		"<C-u>",
 		"<C-y>",
 		"<Tab>",
 		"<S-Tab>",
@@ -548,6 +547,7 @@ function M.disable_impl()
 		emit_user_autocmd("skkelua-mode-changed")
 		emit_user_autocmd("skkelua-disable-post")
 		status.enabled = false
+		require("skkelua.guard").detach()
 	end
 end
 

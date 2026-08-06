@@ -17,10 +17,12 @@ local key_maps = {
 			["<c-g>"] = "cancel",
 			["<c-h>"] = "deleteChar",
 			["<c-w>"] = "deletePreEdit",
+			-- Note: guard.lua が未マップの制御キーを pre-edit 中は破棄するため、
+			--       native の <C-u> (入力文字の削除) に相当する操作として明示的に
+			--       マップする。direct モードでは deletePreEdit が native の
+			--       <C-u> をそのまま通す
+			["<c-u>"] = "deletePreEdit",
 			["<cr>"] = "newline",
-			["<s-cr>"] = "newline",
-			["<c-cr>"] = "newline",
-			["<m-cr>"] = "newline",
 			["<c-y>"] = "kakuteiPassThrough",
 			["<esc>"] = "escape",
 			["<nl>"] = "kakutei",
@@ -35,10 +37,8 @@ local key_maps = {
 		map = {
 			["<c-g>"] = "cancel",
 			["<c-w>"] = "deletePreEdit",
+			["<c-u>"] = "deletePreEdit",
 			["<cr>"] = "newline",
-			["<s-cr>"] = "newline",
-			["<c-cr>"] = "newline",
-			["<m-cr>"] = "newline",
 			["<c-y>"] = "kakuteiPassThrough",
 			["<nl>"] = "kakutei",
 			["<space>"] = "henkanForward",
