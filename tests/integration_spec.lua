@@ -149,6 +149,20 @@ t.test("pum navigation keys still work during pre-edit", function()
 	end)
 end)
 
+t.test("<BS> on the last char leaves henkan input and removes ▽", function()
+	with_buffer(function()
+		-- ▽か の か を消した時点で ▽ も消え、続きは通常のかな入力になる
+		feed("iJKa<BS>ka")
+		t.assert_equals({ "か" }, vim.fn.getline(1, "$"))
+	end)
+
+	with_buffer(function()
+		-- feed 途中 (▽k) でも同様
+		feed("iJK<BS>ka")
+		t.assert_equals({ "か" }, vim.fn.getline(1, "$"))
+	end)
+end)
+
 t.test("<C-u> clears the pre-edit", function()
 	with_buffer(function()
 		-- 変換入力中の <C-u> は pre-edit 全体を削除し、続きは通常入力になる

@@ -221,9 +221,15 @@ function M.delete_char(context)
 			state.henkanFeed = util.char_sub(state.henkanFeed, 1, -2)
 		else
 			require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
+			return
 		end
 	else
 		context:kakutei("\b")
+		return
+	end
+	-- 最後の 1 文字を消したら ▽ を単独で残さず、変換モードごと抜ける
+	if state.mode ~= "direct" and state.feed == "" and state.henkanFeed == "" and state.okuriFeed == "" then
+		require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
 	end
 end
 
