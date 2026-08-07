@@ -92,6 +92,35 @@ t.test("<C-n> still navigates pum during pre-edit", function()
 	end)
 end)
 
+t.test("<C-y> confirms the register completion item", function()
+	with_buffer(function()
+		vim.opt_local.completeopt = "menuone,noselect"
+		-- [辞書登録] 項目と同じ形: word は pre-edit のままで、確定しても
+		-- state は変換入力の続きとして保たれる (registerWord へ繋ぐため)。
+		-- このとき skkelua は native 確定の raw <C-y> を feed するので、
+		-- guard に食われると辞書登録を確定できなくなる (回帰テスト)
+		vim.keymap.set("i", "<C-t>", function()
+			local item = {
+				word = "▽かんじ",
+				abbr = "[辞書登録]",
+				user_data = {
+					nvim = { lsp = { completion_item = { data = { skkelua = true, register = true } } } },
+				},
+			}
+			vim.fn.complete(vim.fn.col(".") - vim.fn.strlen("▽かんじ"), { item })
+		end, { buffer = true })
+		local pum_after
+		vim.keymap.set("i", "<C-b>", function()
+			pum_after = vim.fn.pumvisible()
+		end, { buffer = true })
+		feed("iJKanji<C-t><C-n><C-y><C-b>")
+		-- 確定キーが通れば pum は閉じ、pre-edit と state は保たれている
+		t.assert_equals(0, pum_after)
+		t.assert_equals({ "▽かんじ" }, vim.fn.getline(1, "$"))
+		t.assert_equals("input:okurinasi", require("skkelua.store").status.phase)
+	end)
+end)
+
 t.test("unmapped special key is discarded even while pum is visible", function()
 	with_buffer(function()
 		-- pre-edit 中は補完が自動で pum を開く構成が普通 (lsp.lua は候補が

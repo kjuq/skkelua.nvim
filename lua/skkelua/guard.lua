@@ -46,7 +46,11 @@ local function extra_physical_keys()
 end
 
 -- pum 表示中でも補完の操作として意味を持つキー
--- (<C-n>/<C-p>/<C-e> は単バイト制御キー側の破棄対象なのでここで救う)
+-- (<C-n>/<C-p>/<C-e>/<C-y> は単バイト制御キー側の破棄対象なのでここで救う)
+-- Note: <C-y> は skkelua 自身も feed する: [辞書登録] 項目の確定では
+--       native_confirm_key が raw <C-y> を feedkeys し、しかも登録フローへ
+--       繋ぐため state は非 direct のまま保たれる。ここで通さないと
+--       辞書登録を <C-y> で確定できなくなる
 ---@type table<string, boolean>?
 local pum_nav
 ---@return table<string, boolean>
@@ -55,7 +59,7 @@ local function pum_nav_keys()
 		return pum_nav
 	end
 	pum_nav = {}
-	for _, n in ipairs({ "<up>", "<down>", "<pageup>", "<pagedown>", "<c-n>", "<c-p>", "<c-e>" }) do
+	for _, n in ipairs({ "<up>", "<down>", "<pageup>", "<pagedown>", "<c-n>", "<c-p>", "<c-e>", "<c-y>" }) do
 		pum_nav[termcode(n)] = true
 	end
 	return pum_nav
