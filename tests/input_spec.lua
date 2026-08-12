@@ -93,10 +93,6 @@ t.test("delete char", function()
 	repeat
 		delete_char(context)
 		result = util.char_sub(result, 1, -2)
-		-- 最後の 1 文字を消したら ▽ は単独で残らず、変換モードごと抜ける
-		if result == "▽" then
-			result = ""
-		end
 		t.assert_equals(result, context:to_string())
 	until result == ""
 end)
