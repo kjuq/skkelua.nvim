@@ -228,14 +228,7 @@ function M.delete_char(context)
 		return
 	end
 	-- 最後の 1 文字を消したら ▽ を単独で残さず、変換モードごと抜ける
-	-- (abbrev モードは ▽ を残し、もう一度 <BS> されるまでモードを維持する)
-	if
-		context.mode ~= "abbrev"
-		and state.mode ~= "direct"
-		and state.feed == ""
-		and state.henkanFeed == ""
-		and state.okuriFeed == ""
-	then
+	if state.mode ~= "direct" and state.feed == "" and state.henkanFeed == "" and state.okuriFeed == "" then
 		require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
 	end
 end

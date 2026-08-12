@@ -74,19 +74,6 @@ t.test("abbrev", function()
 	kakutei(c)
 	input_fn.kana_input(c, "A")
 	t.assert_equals("▽あ", c:to_string())
-
-	-- 最後の 1 文字を消しても ▽ と abbrev モードは残る
-	kakutei(c)
-	mode_fn.abbrev(c)
-	input_fn.kana_input(c, "a")
-	t.assert_equals("▽a", c:to_string())
-	input_fn.delete_char(c)
-	t.assert_equals("▽", c:to_string())
-	t.assert_equals("abbrev", c.mode)
-	-- もう一度消すと abbrev を抜ける
-	input_fn.delete_char(c)
-	t.assert_equals("", c:to_string())
-	t.assert_equals("hira", c.mode)
 end)
 
 t.test("can convert okuri string properly when mode changed", function()

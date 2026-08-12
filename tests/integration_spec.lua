@@ -163,21 +163,6 @@ t.test("<BS> on the last char leaves henkan input and removes ▽", function()
 	end)
 end)
 
-t.test("<BS> on the last char keeps abbrev mode", function()
-	with_buffer(function()
-		-- abbrev 入力の最後の 1 文字を消しても ▽ と abbrev モードは残る
-		feed("iJ/a<BS>bc")
-		t.assert_equals({ "▽bc" }, vim.fn.getline(1, "$"))
-		t.assert_equals("abbrev", require("skkelua.store").status.mode)
-	end)
-
-	with_buffer(function()
-		-- ▽ 単独の状態でもう一度 <BS> すると abbrev を抜けてかな入力に戻る
-		feed("iJ/a<BS><BS>ka")
-		t.assert_equals({ "か" }, vim.fn.getline(1, "$"))
-	end)
-end)
-
 t.test("<C-u> clears the pre-edit", function()
 	with_buffer(function()
 		-- 変換入力中の <C-u> は pre-edit 全体を削除し、続きは通常入力になる
