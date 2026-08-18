@@ -161,21 +161,39 @@ end
 --- pum で自前候補にフォーカスしただけ (insertOnSelect や手動ナビゲーションで
 --- prevInput 不一致が起き、henkan から direct へリセット済み) でも、フォーカス中の
 --- 候補を削除対象にする。フォーカス中候補も lastCandidate も無ければ
---- キー本来の動作 (かな入力) に任せる
+--- キー本来の動作 (かな入力) に任せる。
+--- 削除後は ▽henkanFeed (未変換の見出し語入力) へ戻し、そのまま編集・
+--- 再変換を続けられるようにする
 ---@param context skkelua.Context
 ---@param key string
 function M.purge_candidate(context, key)
 	local state = context.state
 	local type_, word, candidate
+	local restore_mode, restore_henkan_feed, restore_okuri_feed
 	if state.type == "henkan" then
 		type_ = state.mode
 		word = state.word
 		candidate = state.candidates[state.candidateIndex + 1]
+		restore_mode, restore_henkan_feed, restore_okuri_feed = state.mode, state.henkanFeed, state.okuriFeed
 	elseif state.type == "input" then
 		if state.mode == "direct" then
-			local _, data = require("skkelua.lsp").selected_word()
+			local sel_word, data = require("skkelua.lsp").selected_word()
 			if data then
 				type_, word, candidate = data.type, data.midasi, data.word
+				-- pum が直接書き換えたバッファのテキストを表示中として認識させ、
+				-- 削除対象にする (delete_pre_edit と同じ再同期パターン)
+				context.preEdit:sync(sel_word)
+				restore_mode = data.type
+				if data.type == "okuriari" then
+					-- data.midasi は okuri.get_okuri_str が組み立てた
+					-- 語幹 + 送り仮名アルファベット (1 文字) の辞書見出し形式なので、
+					-- 末尾を落として語幹を取り出す。送り仮名の生かなは data.okuri にある
+					restore_henkan_feed = data.midasi:sub(1, -2)
+					restore_okuri_feed = data.okuri or ""
+				else
+					restore_henkan_feed = data.midasi
+					restore_okuri_feed = ""
+				end
 			elseif context.lastCandidate.word ~= "" then
 				type_ = context.lastCandidate.type
 				word = context.lastCandidate.word
@@ -198,7 +216,14 @@ function M.purge_candidate(context, key)
 	if vim.fn.confirm(msg, "&Yes\n&No\n", 2) == 1 then
 		local lib = require("skkelua.store").get_library()
 		lib:purge_candidate(type_, word, candidate)
-		require("skkelua.state").initialize_state(state)
+		if restore_henkan_feed then
+			state.mode = restore_mode
+			state.henkanFeed = restore_henkan_feed
+			state.okuriFeed = restore_okuri_feed
+			require("skkelua.state").initialize_state(state, { "mode", "henkanFeed", "okuriFeed" })
+		else
+			require("skkelua.state").initialize_state(state)
+		end
 		context.lastCandidate.word = ""
 	end
 end

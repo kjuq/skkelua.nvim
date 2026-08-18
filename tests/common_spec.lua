@@ -184,7 +184,7 @@ local function with_confirm_stub(answer, fn)
 	return msg
 end
 
-t.test("purgeCandidate removes the henkan candidate", function()
+t.test("purgeCandidate removes the henkan candidate and returns to ▽midasi", function()
 	local lib = setup_library()
 	local purge_candidate = require("skkelua.function.common").purge_candidate
 	local context = require("skkelua.context").new()
@@ -197,6 +197,32 @@ t.test("purgeCandidate removes the henkan candidate", function()
 	end)
 	t.assert_equals("Really purge? あ /い/", msg)
 	t.assert_equals({}, lib:get_henkan_result("okurinasi", "あ"))
+	-- 削除した候補の表示が残らず、未変換の見出し語入力へ戻って編集を続けられる
+	t.assert_equals("▽あ", context:to_string())
+	t.assert_equals("input", context.state.type)
+	t.assert_equals("okurinasi", context.state.mode)
+end)
+
+t.test("purgeCandidate removes an okuriari candidate and returns to ▽midasi*okuri", function()
+	t.clean_dictionary_config()
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okuriari", "おくr", "送")
+	lib:register_henkan_result("okuriari", "おくr", "贈")
+	local purge_candidate = require("skkelua.function.common").purge_candidate
+	local context = require("skkelua.context").new()
+
+	t.dispatch(context, "OkuRu")
+	t.assert_equals("▼贈る", context:to_string())
+
+	local msg = with_confirm_stub(1, function()
+		purge_candidate(context, "X")
+	end)
+	t.assert_equals("Really purge? おくr /贈/", msg)
+	t.assert_equals({ "送" }, lib:get_henkan_result("okuriari", "おくr"))
+	-- 語幹と送り仮名を保ったまま未変換の見出し語入力へ戻る
+	t.assert_equals("▽おく*る", context:to_string())
+	t.assert_equals("input", context.state.type)
+	t.assert_equals("okuriari", context.state.mode)
 end)
 
 t.test("purgeCandidate uses lastCandidate right after committing in direct mode", function()

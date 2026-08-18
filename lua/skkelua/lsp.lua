@@ -302,7 +302,10 @@ local function make_completion_list()
 					range = range,
 					newText = display,
 				},
-				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type },
+				-- okuri (送り仮名の生かな) は purgeCandidate が ▽henkanFeed*okuriFeed
+				-- を組み立て直すのに使う (midasi は語幹 + 送り仮名アルファベットの
+				-- 辞書見出し形式で、そのままでは送り仮名を分離できない)
+				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type, okuri = c.okuri },
 			}
 			if instant_insert then
 				-- insertOnSelect: filterText を持たせないことで、クライアントの

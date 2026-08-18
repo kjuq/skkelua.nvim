@@ -199,6 +199,53 @@ t.test("X purges the candidate pum-focused via insertOnSelect", function()
 	end)
 end)
 
+t.test("X purging the pum-focused candidate returns to ▽midasi", function()
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okurinasi", "かんじ", "漢字")
+	lib:register_henkan_result("okurinasi", "かんじ", "感じ")
+
+	with_buffer(function()
+		vim.opt_local.completeopt = "menuone"
+		vim.cmd([[inoremap <buffer> <C-t> <Cmd>lua require('_G')._skkelua_test_complete()<CR>]])
+		_G._skkelua_test_complete = function()
+			local function item(word, candidate)
+				return {
+					word = word,
+					user_data = {
+						nvim = {
+							lsp = {
+								completion_item = {
+									data = { skkelua = true, midasi = "かんじ", word = candidate, type = "okurinasi", okuri = "" },
+								},
+							},
+						},
+					},
+				}
+			end
+			vim.fn.complete(vim.fn.col(".") - vim.fn.strlen("▼感じ"), {
+				item("感じ", "感じ"),
+				item("漢字", "漢字"),
+			})
+		end
+
+		local orig_confirm = vim.fn.confirm
+		vim.fn.confirm = function(...)
+			return 1 -- Yes
+		end
+		local ok, err = pcall(function()
+			feed("iJKanji <C-t><C-n>X")
+			-- pum が挿入した "漢字" が消え、削除前の未変換の見出し語入力 (▽かんじ) に戻る
+			t.assert_equals({ "▽かんじ" }, vim.fn.getline(1, "$"))
+			t.assert_equals({ "感じ" }, lib:get_henkan_result("okurinasi", "かんじ"))
+		end)
+		vim.fn.confirm = orig_confirm
+		_G._skkelua_test_complete = nil
+		if not ok then
+			error(err, 0)
+		end
+	end)
+end)
+
 t.test("<C-u> clears the pre-edit", function()
 	with_buffer(function()
 		-- 変換入力中の <C-u> は pre-edit 全体を削除し、続きは通常入力になる
