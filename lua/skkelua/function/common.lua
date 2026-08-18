@@ -157,19 +157,35 @@ function M.delete_pre_edit(context, key)
 	require("skkelua.mode").initialize_state_with_abbrev(context)
 end
 
---- 候補を辞書から削除する
+--- 候補を辞書から削除する。
+--- pum で自前候補にフォーカスしただけ (insertOnSelect や手動ナビゲーションで
+--- prevInput 不一致が起き、henkan から direct へリセット済み) でも、フォーカス中の
+--- 候補を削除対象にする。フォーカス中候補も lastCandidate も無ければ
+--- キー本来の動作 (かな入力) に任せる
 ---@param context skkelua.Context
-function M.purge_candidate(context)
+---@param key string
+function M.purge_candidate(context, key)
 	local state = context.state
 	local type_, word, candidate
-	if state.type == "input" then
-		type_ = context.lastCandidate.type
-		word = context.lastCandidate.word
-		candidate = context.lastCandidate.candidate
-	elseif state.type == "henkan" then
+	if state.type == "henkan" then
 		type_ = state.mode
 		word = state.word
 		candidate = state.candidates[state.candidateIndex + 1]
+	elseif state.type == "input" then
+		if state.mode == "direct" then
+			local _, data = require("skkelua.lsp").selected_word()
+			if data then
+				type_, word, candidate = data.type, data.midasi, data.word
+			elseif context.lastCandidate.word ~= "" then
+				type_ = context.lastCandidate.type
+				word = context.lastCandidate.word
+				candidate = context.lastCandidate.candidate
+			end
+		end
+		if not word then
+			require("skkelua.function.input").kana_input(context, key)
+			return
+		end
 	else
 		vim.print("purgeCandidate: reach illegal state")
 		vim.print(context)

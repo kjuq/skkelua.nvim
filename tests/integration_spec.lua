@@ -149,6 +149,56 @@ t.test("pum navigation keys still work during pre-edit", function()
 	end)
 end)
 
+t.test("X purges the candidate pum-focused via insertOnSelect", function()
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okurinasi", "かんじ", "漢字")
+	lib:register_henkan_result("okurinasi", "かんじ", "感じ")
+
+	with_buffer(function()
+		-- insertOnSelect と同じ形の候補 (word がバッファへ挿入され、フォーカスと
+		-- 同時に prevInput 不一致で henkan -> direct へリセットされる) を complete() で模擬する
+		vim.opt_local.completeopt = "menuone"
+		vim.cmd([[inoremap <buffer> <C-t> <Cmd>lua require('_G')._skkelua_test_complete()<CR>]])
+		_G._skkelua_test_complete = function()
+			local function item(word, candidate)
+				return {
+					word = word,
+					user_data = {
+						nvim = {
+							lsp = {
+								completion_item = {
+									data = { skkelua = true, midasi = "かんじ", word = candidate, type = "okurinasi" },
+								},
+							},
+						},
+					},
+				}
+			end
+			vim.fn.complete(vim.fn.col(".") - vim.fn.strlen("▼感じ"), {
+				item("感じ", "感じ"),
+				item("漢字", "漢字"),
+			})
+		end
+
+		local confirm_msg
+		local orig_confirm = vim.fn.confirm
+		vim.fn.confirm = function(msg)
+			confirm_msg = msg
+			return 2 -- No (実際の削除は他のテストで確認する)
+		end
+		local ok, err = pcall(function()
+			-- <C-n> で候補をたどってフォーカスし、まだ確定していない状態で X
+			feed("iJKanji <C-t><C-n>X")
+			t.assert_equals("Really purge? かんじ /漢字/", confirm_msg)
+		end)
+		vim.fn.confirm = orig_confirm
+		_G._skkelua_test_complete = nil
+		if not ok then
+			error(err, 0)
+		end
+	end)
+end)
+
 t.test("<C-u> clears the pre-edit", function()
 	with_buffer(function()
 		-- 変換入力中の <C-u> は pre-edit 全体を削除し、続きは通常入力になる

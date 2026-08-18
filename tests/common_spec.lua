@@ -164,3 +164,80 @@ t.test("turn off mode when kakutei with empty input", function()
 	kakutei_key(context)
 	t.assert_equals("hira", context.mode)
 end)
+
+--- vim.fn.confirm を差し替えて実行し、必ず元に戻す
+---@param answer integer
+---@param fn fun(): (string?) メッセージを捕捉する必要が無ければ何も返さなくて良い
+---@return string? captured_msg
+local function with_confirm_stub(answer, fn)
+	local orig_confirm = vim.fn.confirm
+	local msg
+	vim.fn.confirm = function(m)
+		msg = m
+		return answer
+	end
+	local ok, err = pcall(fn)
+	vim.fn.confirm = orig_confirm
+	if not ok then
+		error(err, 0)
+	end
+	return msg
+end
+
+t.test("purgeCandidate removes the henkan candidate", function()
+	local lib = setup_library()
+	local purge_candidate = require("skkelua.function.common").purge_candidate
+	local context = require("skkelua.context").new()
+
+	t.dispatch(context, "A ")
+	t.assert_equals("▼い", context:to_string())
+
+	local msg = with_confirm_stub(1, function()
+		purge_candidate(context, "X")
+	end)
+	t.assert_equals("Really purge? あ /い/", msg)
+	t.assert_equals({}, lib:get_henkan_result("okurinasi", "あ"))
+end)
+
+t.test("purgeCandidate uses lastCandidate right after committing in direct mode", function()
+	local lib = setup_library()
+	local common = require("skkelua.function.common")
+	local context = require("skkelua.context").new()
+
+	-- 確定直後は lastCandidate に直前の候補が残り、direct モードのままでも消せる
+	t.dispatch(context, "A ")
+	common.kakutei(context)
+	t.assert_equals("い", context.lastCandidate.candidate)
+	t.assert_equals("input", context.state.type)
+	t.assert_equals("direct", context.state.mode)
+
+	local msg = with_confirm_stub(1, function()
+		common.purge_candidate(context, "X")
+	end)
+	t.assert_equals("Really purge? あ /い/", msg)
+	t.assert_equals({}, lib:get_henkan_result("okurinasi", "あ"))
+end)
+
+t.test("purgeCandidate falls back to kana input without any candidate to purge", function()
+	setup_library()
+	local purge_candidate = require("skkelua.function.common").purge_candidate
+	local context = require("skkelua.context").new()
+
+	-- direct モードで pum フォーカスも lastCandidate も無ければ、
+	-- 通常のかな入力 (大文字 X = 変換入力の開始) に委譲する
+	purge_candidate(context, "X")
+	t.assert_equals("▽x", context:to_string())
+end)
+
+t.test("purgeCandidate falls back to kana input while henkan input is in progress", function()
+	setup_library()
+	local purge_candidate = require("skkelua.function.common").purge_candidate
+	local context = require("skkelua.context").new()
+
+	-- 変換入力中 (okurinasi) の X は lastCandidate があっても変換入力を優先する
+	context.lastCandidate = { type = "okurinasi", word = "あ", candidate = "い" }
+	t.dispatch(context, "Kanji")
+	t.assert_equals("▽かんじ", context:to_string())
+	purge_candidate(context, "X")
+	t.assert_equals("▽かんじ*x", context:to_string())
+end)

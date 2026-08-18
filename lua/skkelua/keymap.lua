@@ -30,6 +30,12 @@ local key_maps = {
 			["<tab>"] = "passThrough",
 			["<s-tab>"] = "passThrough",
 			[">"] = "prefix",
+			-- Note: pum で自前候補にフォーカスしただけの状態 (insertOnSelect や
+			--       手動ナビゲーションで henkan から direct へリセット済み) でも
+			--       X で候補を削除できるようにする。purgeCandidate 自身が
+			--       フォーカス中候補も lastCandidate も無ければ通常のかな入力へ
+			--       委譲するため、direct モードの既存挙動は変わらない
+			["X"] = "purgeCandidate",
 		},
 	},
 	henkan = {
