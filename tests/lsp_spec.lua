@@ -633,3 +633,78 @@ t.test("complete_callback registers the selected candidate", function()
 	t.assert_equals("漢字", candidates[1])
 	vim.cmd.bwipeout({ bang = true })
 end)
+
+t.test("abbrev input adds raw input candidates at the bottom", function()
+	local skkelua = require("skkelua")
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okurinasi", "overall", "全体")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- /overall で abbrev 変換入力に入る
+	local pre_edit = setup_state({ "/", "o", "v", "e", "r", "a", "l", "l" })
+	t.assert_equals("▽overall", pre_edit)
+	t.assert_equals("abbrev", skkelua.mode())
+	t.assert_equals("input:okurinasi", skkelua.phase())
+
+	local list = require("skkelua.lsp")._make_completion_list()
+	local labels = {}
+	for _, item in ipairs(list.items) do
+		labels[#labels + 1] = item.label
+	end
+	-- 辞書候補の後、[辞書登録] の前に、入力そのもの + スペース前置形が並ぶ
+	t.assert_equals({ "全体", "overall", " overall", "[辞書登録]" }, labels)
+
+	local raw = list.items[2]
+	t.assert_equals("overall", raw.textEdit.newText)
+	t.assert_equals(true, raw.data.raw)
+	local spaced = list.items[3]
+	t.assert_equals(" overall", spaced.textEdit.newText)
+	t.assert_equals(true, spaced.data.raw)
+
+	-- raw 候補の確定ではユーザー辞書に登録されない
+	require("skkelua.lsp")._on_complete_done("accept", {
+		user_data = { nvim = { lsp = { completion_item = { data = raw.data } } } },
+	})
+	t.assert_equals({ "全体" }, lib:get_henkan_result("okurinasi", "overall"))
+
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("abbrev raw candidate is deduped against dictionary candidates", function()
+	local skkelua = require("skkelua")
+	local lib = require("skkelua.store").get_library()
+	-- 入力そのものと同じ文字列が辞書候補として既にある場合は重複させない
+	lib:register_henkan_result("okurinasi", "ov", "ov")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	local pre_edit = setup_state({ "/", "o", "v" })
+	t.assert_equals("▽ov", pre_edit)
+
+	local list = require("skkelua.lsp")._make_completion_list()
+	local labels = {}
+	for _, item in ipairs(list.items) do
+		labels[#labels + 1] = item.label
+	end
+	t.assert_equals({ "ov", " ov", "[辞書登録]" }, labels)
+	-- 先頭は辞書候補なので確定時に登録される (raw ではない)
+	t.assert_equals(nil, list.items[1].data.raw)
+
+	vim.cmd.bwipeout({ bang = true })
+end)
+
+t.test("kana input does not add raw candidates", function()
+	setup_library()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+	setup_henkan_state()
+
+	local list = require("skkelua.lsp")._make_completion_list()
+	for _, item in ipairs(list.items) do
+		t.assert_equals(nil, item.data.raw)
+	end
+
+	vim.cmd.bwipeout({ bang = true })
+end)

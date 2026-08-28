@@ -178,7 +178,8 @@ function M.purge_candidate(context, key)
 	elseif state.type == "input" then
 		if state.mode == "direct" then
 			local sel_word, data = require("skkelua.lsp").selected_word()
-			if data then
+			-- raw 候補 (abbrev の入力そのまま) は辞書エントリではないので対象外
+			if data and not data.raw then
 				type_, word, candidate = data.type, data.midasi, data.word
 				-- pum が直接書き換えたバッファのテキストを表示中として認識させ、
 				-- 削除対象にする (delete_pre_edit と同じ再同期パターン)

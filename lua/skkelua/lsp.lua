@@ -72,11 +72,13 @@ end
 ---@field type skkelua.HenkanType
 ---@field affix? skkelua.AffixType
 ---@field rank? number 並び順の決定に使うランク (大きいほど上)
+---@field raw? boolean 辞書由来でない入力そのままの候補 (登録・purge の対象外)
 
 --- 送りなし変換入力 (▽かんじ) の候補: 見出しの前方一致検索
 --- (@ddc-sources/skkeleton の gather に相当)。
 --- ユーザー辞書で確定済みの候補 (ランク持ち) を確定が新しい順に先頭へ置き、
---- 残りは見出しの辞書順で並べる
+--- 残りは見出しの辞書順で並べる。
+--- abbrev モードでは入力そのものと半角スペース前置形を末尾に足す
 ---@return skkelua.LspCandidate[]
 local function okurinasi_candidates()
 	local skkelua = require("skkelua")
@@ -106,6 +108,13 @@ local function okurinasi_candidates()
 	table.sort(result, function(a, b)
 		return a.rank > b.rank
 	end)
+	local context = require("skkelua.store").get_context()
+	if context.mode == "abbrev" then
+		local feed = context.state.henkanFeed
+		for _, word in ipairs({ feed, " " .. feed }) do
+			result[#result + 1] = { word = word, midasi = feed, okuri = "", type = "okurinasi", raw = true }
+		end
+	end
 	return result
 end
 
@@ -328,7 +337,7 @@ local function make_completion_list()
 				-- okuri (送り仮名の生かな) は purgeCandidate が ▽henkanFeed*okuriFeed
 				-- を組み立て直すのに使う (midasi は語幹 + 送り仮名アルファベットの
 				-- 辞書見出し形式で、そのままでは送り仮名を分離できない)
-				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type, okuri = c.okuri },
+				data = { skkelua = true, midasi = c.midasi, word = c.word, type = c.type, okuri = c.okuri, raw = c.raw },
 			}
 			if instant_insert then
 				-- insertOnSelect: filterText を持たせないことで、クライアントの
@@ -473,6 +482,10 @@ function M._on_complete_done(reason, completed_item)
 		vim.schedule(function()
 			require("skkelua").handle("handleKey", { ["function"] = "registerWord" })
 		end)
+		return
+	end
+	-- 入力そのままの候補 (abbrev の raw 候補) は辞書へ登録しない
+	if data.raw then
 		return
 	end
 	require("skkelua").complete_callback(data.midasi, data.word, data.type)
