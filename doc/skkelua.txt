@@ -187,7 +187,9 @@ acceptIllegalResult (false)
 completion ({ enabled = false })
 	変換候補の builtin LSP 補完。|skkelua-completion| 参照。
 completionRankFile ("")
-	補完候補ランクの保存先ファイル。
+	補完候補ランクの保存先ファイル。設定すると補完候補の並び順
+	(確定が新しい候補ほど上、|skkelua-completion| 参照) が
+	セッションを跨いで保たれます。
 debug (false)
 	デバッグログを出力します。
 eggLikeNewline (false)
@@ -294,8 +296,12 @@ pureSpace (|skkelua-options|) も合わせて有効にすると快適です。
   ユーザー辞書へ登録されます (以後の候補順に反映されます)
 - 候補を未選択のまま CTRL-Y を押すと、変換せずかなのまま確定します
   (デフォルトマップの kakuteiPassThrough、|skkelua-kanatable| 参照)
-- 候補の並びは変換と同じ辞書順 (ユーザー辞書 -> グローバル辞書のマージ順)
-  です
+- 送りなし入力の候補は、ユーザー辞書で確定した候補 (ランク持ち) が
+  確定の新しい順に先頭へ並び、残りは見出しの辞書順で並びます。
+  completionRankFile (|skkelua-options|) を設定するとランクが保存され、
+  並び順がセッションを跨いで保たれます。
+  送りあり入力と候補選択中 (▼) の並びは変換と同じ辞書順
+  (ユーザー辞書 -> グローバル辞書のマージ順) です
 - 候補の末尾には常に [辞書登録] 項目が並びます。確定すると
   フローティングウィンドウの登録プロンプトが開き、入力した単語が
   その読みでユーザー辞書へ登録されて pre-edit を置き換えます。

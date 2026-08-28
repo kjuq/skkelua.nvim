@@ -71,18 +71,41 @@ end
 ---@field okuri string 送り仮名 (送りなしは "")
 ---@field type skkelua.HenkanType
 ---@field affix? skkelua.AffixType
+---@field rank? number 並び順の決定に使うランク (大きいほど上)
 
 --- 送りなし変換入力 (▽かんじ) の候補: 見出しの前方一致検索
+--- (@ddc-sources/skkeleton の gather に相当)。
+--- ユーザー辞書で確定済みの候補 (ランク持ち) を確定が新しい順に先頭へ置き、
+--- 残りは見出しの辞書順で並べる
 ---@return skkelua.LspCandidate[]
 local function okurinasi_candidates()
 	local skkelua = require("skkelua")
+	local completions = skkelua.get_completion_result()
+	table.sort(completions, function(a, b)
+		return a[1] < b[1]
+	end)
+	local ranks = {}
+	for _, e in ipairs(skkelua.get_ranks()) do
+		ranks[e[1]] = e[2]
+	end
+	-- ランクを持たない候補はランク持ちの末尾より配置する。
+	-- 見出しの辞書順を保つよう先頭から順に負の方向にランクを振っていく
+	local global_rank = -1
 	local result = {}
-	for _, entry in ipairs(skkelua.get_completion_result()) do
+	for _, entry in ipairs(completions) do
 		local midasi, words = entry[1], entry[2]
 		for _, word in ipairs(words) do
-			result[#result + 1] = { word = word, midasi = midasi, okuri = "", type = "okurinasi" }
+			local rank = ranks[word]
+			if rank == nil then
+				rank = global_rank
+				global_rank = global_rank - 1
+			end
+			result[#result + 1] = { word = word, midasi = midasi, okuri = "", type = "okurinasi", rank = rank }
 		end
 	end
+	table.sort(result, function(a, b)
+		return a.rank > b.rank
+	end)
 	return result
 end
 

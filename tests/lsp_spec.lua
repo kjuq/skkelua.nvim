@@ -103,6 +103,47 @@ t.test("completion list for henkan input", function()
 	vim.cmd.bwipeout({ bang = true })
 end)
 
+t.test("completion candidates are sorted by rank then by midasi", function()
+	-- グローバル辞書相当: 見出しの辞書順で かんじ < かんじょう
+	local tmp = t.tempname()
+	local f = assert(io.open(tmp, "w"))
+	f:write(";; okuri-nasi entries.\nかんじ /漢字/幹事/\nかんじょう /感情/\n")
+	f:close()
+	local global_dict = require("skkelua.sources.skk_dictionary").Dictionary.new()
+	global_dict:load(tmp, "utf-8")
+	local lib = require("skkelua.store").get_library()
+	table.insert(lib.dictionaries, global_dict)
+
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+	setup_henkan_state()
+
+	local function labels()
+		local result = {}
+		for _, item in ipairs(require("skkelua.lsp")._make_completion_list().items) do
+			result[#result + 1] = item.label
+		end
+		return result
+	end
+
+	-- ランクが無ければ見出しの辞書順
+	t.assert_equals({ "漢字", "幹事", "感情", "[辞書登録]" }, labels())
+
+	-- ユーザー辞書で確定した候補はランク持ちになり、見出しの一致長に
+	-- かかわらず先頭へ出る
+	lib:register_henkan_result("okurinasi", "かんじょう", "感情")
+	t.assert_equals({ "感情", "漢字", "幹事", "[辞書登録]" }, labels())
+
+	-- ランク持ち同士は確定が新しい順
+	vim.wait(3)
+	lib:register_henkan_result("okurinasi", "かんじ", "幹事")
+	t.assert_equals({ "幹事", "感情", "漢字", "[辞書登録]" }, labels())
+
+	os.remove(tmp)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
 t.test("annotation is stripped from insert text", function()
 	setup_library()
 	local skkelua = require("skkelua")
