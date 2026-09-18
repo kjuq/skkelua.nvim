@@ -44,6 +44,7 @@ local default_config = nil
 
 --- 各テストの前に skkelua の内部状態をリセットする
 function M.reset()
+	require("skkelua.completion").set_adapter(nil)
 	local config_mod = require("skkelua.config")
 	if not default_config then
 		default_config = vim.deepcopy(config_mod.config)

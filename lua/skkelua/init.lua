@@ -84,18 +84,14 @@ end
 
 ---@return string, table
 local function complete_info()
-	if vim.fn.exists("*pum#visible") == 1 and is_truthy(vim.fn["pum#visible"]()) then
-		return "pum.vim", vim.fn["pum#complete_info"]({ "pum_visible", "selected" })
-	end
-	local cmp = package.loaded["cmp"]
-	if cmp then
-		local ok, visible = pcall(function()
-			return cmp.visible()
-		end)
-		if ok and visible then
-			local selected = cmp.get_active_entry() ~= nil
-			return "cmp", { pum_visible = true, selected = selected and 1 or -1 }
-		end
+	local state = require("skkelua.completion").state()
+	if state then
+		return "external",
+			{
+				pum_visible = state.visible,
+				selected = state.selected and 0 or -1,
+				completion_item = state.selected and state.selected.item,
+			}
 	end
 	-- items は選択中の [辞書登録] 項目の判定 (handle_impl) に使う
 	return "native", vim.fn.complete_info({ "pum_visible", "selected", "items" })
@@ -141,10 +137,8 @@ end
 local function native_confirm_key(complete_type)
 	if complete_type == "native" then
 		return require("skkelua.notation").notation_to_key["<c-y>"]
-	elseif complete_type == "pum.vim" then
-		return "<Cmd>call pum#map#confirm()"
-	elseif complete_type == "cmp" then
-		return "<Cmd>lua require('cmp').confirm({select = true})"
+	elseif complete_type == "external" then
+		return require("skkelua.completion").confirm()
 	end
 	return nil
 end
@@ -195,11 +189,8 @@ local function handle_impl(opts, vim_status)
 				selected = vim_status.completeInfo.selected,
 			})
 		end
-		local handled = handle_complete_key(
-			vim_status.completeInfo.selected >= 0,
-			vim_status.completeType,
-			notation_str
-		)
+		local handled =
+			handle_complete_key(vim_status.completeInfo.selected >= 0, vim_status.completeType, notation_str)
 		if type(handled) == "string" then
 			-- [辞書登録] 項目の確定はバッファを変えず、CompleteDone からの
 			-- registerWord が変換入力の続きとして実行されるため状態を保つ
@@ -208,7 +199,12 @@ local function handle_impl(opts, vim_status)
 			if (info.selected or -1) >= 0 and type(info.items) == "table" then
 				sel_item = info.items[info.selected + 1]
 			end
-			if not require("skkelua.lsp").is_register_item(sel_item) then
+			if
+				not (
+					require("skkelua.completion").is_register_item(info.completion_item)
+					or require("skkelua.lsp").is_register_item(sel_item)
+				)
+			then
 				require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
 				context.preEdit:output("")
 			end
@@ -613,10 +609,7 @@ end
 
 --- deno_kv データベースは Lua 版では非対応
 function M.update_database(_path, _encoding, _force)
-	vim.notify(
-		"skkelua: updateDatabase (deno_kv) is not supported by the lua version",
-		vim.log.levels.WARN
-	)
+	vim.notify("skkelua: updateDatabase (deno_kv) is not supported by the lua version", vim.log.levels.WARN)
 end
 
 --------------------------------------------------------------------

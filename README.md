@@ -132,6 +132,18 @@ require("skkelua").config({
   この項目だけのメニューが開くので、変換キーを使わずに新しい単語を登録できます
 - skkelua の有効・無効に連動して補完も付いたり外れたりします
 
+### 外部の補完 UI との連携
+
+`skkelua.completion.get()` / `accept()` で候補生成と確定処理を共有できます。
+`skkelua.lsp.start(bufnr)` は、既定の文書解決を使い、バッファ間で LSP クライアントを共有します。
+組み込み UI は有効化しません。要求 URI と入力先の対応や、その要求が現在の入力を対象とするかの判定は接続側が担当します。
+`skkelua.lsp.new_server()` で接続を自前で管理することもでき、
+`skkelua.completion.set_adapter()` で外部 UI の選択状態・確定キー・再補完を接続します。
+`completion.enabled` に関係なく、従来の cmp / pum.vim の自動検出と確定キー連携も使えます。
+`false` では組み込み補完を無効にし、外部側で接続を設定できます。
+明示的なアダプターは自動検出より優先されます。各 UI の候補ソースや確定後の学習は外部側で接続します。
+詳細は `:help skkelua-completion-extension` を参照してください。
+
 ## skkeleton との関係
 
 skkelua は [vim-skk/skkeleton](https://github.com/vim-skk/skkeleton) の
@@ -153,7 +165,7 @@ denops 版との主な違い:
 | 変換ごとの undo 区切り (`setUndoPoint`) | デフォルト有効 | デフォルト無効 |
 | SKK サーバー | 非同期 TCP | 同期 TCP (タイムアウト 1 秒) |
 | Google 日本語入力 | fetch | curl |
-| ddc.vim ソース | 同梱 | 非同梱 (補完用 Lua API を提供) |
+| ddc.vim ソース | 同梱 | 非同梱 (UI 非依存の候補・確定 API と LSP transport を提供) |
 
 ## Development
 

@@ -52,11 +52,41 @@ t.test("<C-y> with pum selected passes through to native confirm", function()
 	t.assert_equals("", skkelua.get_pre_edit())
 end)
 
-t.test("<C-y> with cmp selection returns cmp confirm command", function()
+t.test("<C-y> delegates confirmation to an external adapter", function()
 	setup_henkan_input()
+	local completion = require("skkelua.completion")
+	completion.set_adapter({
+		state = function()
+			return { visible = true, selected = { word = "漢字", item = { data = { skkelua = true } } } }
+		end,
+		confirm = function()
+			return "external-confirm"
+		end,
+	})
+	local status = require("skkelua").vim_status()
+	local ret = handle_key("<c-y>", status.completeInfo, status.completeType)
+	t.assert_equals("external-confirm", ret.result)
+	t.assert_equals("", require("skkelua").get_pre_edit())
+end)
 
-	local ret = handle_key("<c-y>", { pum_visible = 1, selected = 1 }, "cmp")
-	t.assert_equals("<Cmd>lua require('cmp').confirm({select = true})", ret.result)
+t.test("external registration selection preserves pre-edit", function()
+	setup_henkan_input()
+	local completion = require("skkelua.completion")
+	completion.set_adapter({
+		state = function()
+			return {
+				visible = true,
+				selected = { word = "▽かんじ", item = { data = { skkelua = true, register = true } } },
+			}
+		end,
+		confirm = function()
+			return "external-confirm"
+		end,
+	})
+	local status = require("skkelua").vim_status()
+	local ret = handle_key("<c-y>", status.completeInfo, status.completeType)
+	t.assert_equals("external-confirm", ret.result)
+	t.assert_equals("▽かんじ", require("skkelua").get_pre_edit())
 end)
 
 t.test("<C-y> on the selected [辞書登録] item keeps the henkan input state", function()

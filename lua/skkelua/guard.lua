@@ -159,7 +159,7 @@ function M._on_key(key, _)
 	if mode:sub(1, 1) == "i" and completion_keys()[key] then
 		return
 	end
-	if vim.fn.pumvisible() == 1 and pum_nav_keys()[key] then
+	if require("skkelua.completion").visible() and pum_nav_keys()[key] then
 		return
 	end
 	-- pre-edit 状態のまま insert を抜けた場合 (stopinsert など) に
