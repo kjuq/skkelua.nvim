@@ -78,6 +78,40 @@ t.test("hostile control keys are discarded during pre-edit", function()
 	end)
 end)
 
+t.test("fed <BS> from a completion UI replaces the pre-edit", function()
+	with_buffer(function()
+		-- 外部の補完 UI は、入力を候補で置き換えるために noremap で <BS> と
+		-- 候補を feedkeys することがある。
+		-- 物理キーではないので guard は破棄しない
+		vim.keymap.set("i", "<C-t>", function()
+			local keys = vim.api.nvim_replace_termcodes("<BS><BS><BS><BS>漢字", true, true, true)
+			vim.api.nvim_feedkeys(keys, "in", false)
+		end, { buffer = true })
+		feed("iJKanji<C-t>")
+		t.assert_equals({ "漢字" }, vim.fn.getline(1, "$"))
+	end)
+end)
+
+t.test("<BS> reaching the guard unmapped is discarded unless fed", function()
+	local guard = require("skkelua.guard")
+	local bs = vim.api.nvim_replace_termcodes("<BS>", true, true, true)
+	with_buffer(function()
+		local results
+		vim.keymap.set("i", "<C-b>", function()
+			local reg_executing = vim.fn.reg_executing
+			vim.fn.reg_executing = function()
+				return "q"
+			end
+			local replayed = guard._on_key(bs, "")
+			vim.fn.reg_executing = reg_executing
+			results = { typed = guard._on_key(bs, bs), fed = guard._on_key(bs, ""), replayed = replayed }
+		end, { buffer = true })
+		feed("iJKanji<C-b>")
+		-- 物理キーとマクロ再生の <BS> は従来どおり破棄する
+		t.assert_equals({ typed = "", replayed = "" }, results)
+	end)
+end)
+
 t.test("<C-n> still navigates pum during pre-edit", function()
 	with_buffer(function()
 		vim.opt_local.completeopt = "menuone,noselect"

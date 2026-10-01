@@ -75,6 +75,13 @@ end
 -- insert モードでのみ通す
 local completion_keys = key_set({ "<c-n>", "<c-p>" })
 
+-- 補完 UI が feedkeys するキー (タイプ由来でなければ通す)。外部の補完 UI は
+-- 入力を候補で置き換えるために noremap で <BS> を feedkeys することがある。
+-- これは物理キーではなく、捨てると候補が pre-edit の後ろに追記されてしまう。
+-- 置き換えでずれた pre-edit の追跡は、選択挿入と同じく既存の補完リカバリ
+-- (prevInput 不一致リセット) が面倒を見る
+local fed_keys = key_set({ "<bs>" })
+
 -- pum 表示中の候補操作キー (cmdline の wildmenu も含む)
 -- Note: <C-y> は skkelua 自身も feed する: [辞書登録] 項目の確定では
 --       native_confirm_key が raw <C-y> を feedkeys し、しかも登録フローへ
@@ -141,9 +148,15 @@ end
 ---                   現れない (:lmap <expr> はその結果だけが、Lua コールバック
 ---                   マッピングは KE_LUA 擬似キーが来る) ため、ここに生の
 ---                   特殊キーが来る = 未マップで素通りする直前ということ
+---@param typed string マッピング適用前のキー。feedkeys などタイプ以外で
+---                     生じたキーでは空になる
 ---@return string? "" を返すとそのキーは破棄される
-function M._on_key(key, _)
+function M._on_key(key, typed)
 	if not M._is_physical_special(key) and not M._is_hostile_control(key) then
+		return
+	end
+	-- マクロ再生もタイプ以外で生じるキーだが、ユーザー入力の再現なので守る
+	if typed == "" and vim.fn.reg_executing() == "" and fed_keys()[key] then
 		return
 	end
 	local store = require("skkelua.store")
