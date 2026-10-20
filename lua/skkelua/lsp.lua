@@ -1,12 +1,15 @@
--- 変換候補を Neovim builtin 補完へ流す in-process LSP サーバー
+-- 変換候補を LSP (builtin 補完・外部の補完 UI) へ流す in-process サーバー
 --
 -- 変換入力中 (▽かんじ) に、見出しを前方一致検索した変換候補を
--- textDocument/completion の結果として返す。候補を確定すると
--- CompleteDone でユーザー辞書へ登録される。
+-- textDocument/completion の結果として返す。候補を確定すると、
+-- クライアントが実行する item.command (skkelua.accept) で
+-- ユーザー辞書へ登録される。
 
 local M = {}
 
 local CLIENT_NAME = "skkelua"
+
+local list_of = require("skkelua.lsp.list")
 
 local function completion_config()
 	return require("skkelua.config").config.completion
@@ -65,142 +68,6 @@ local function trigger_characters()
 	return chars
 end
 
----@class skkelua.LspCandidate
----@field word string 辞書上の候補原文 (注釈付き)
----@field midasi string 辞書の見出し
----@field okuri string 送り仮名 (送りなしは "")
----@field type skkelua.HenkanType
----@field affix? skkelua.AffixType
----@field rank? number 並び順の決定に使うランク (大きいほど上)
----@field raw? boolean 辞書由来でない候補 (abbrev の入力そのまま。completion.abbrevWithSpace で半角スペースを前置できる。登録・purge の対象外)
-
---- 送りなし変換入力 (▽かんじ) の候補: 見出しの前方一致検索
---- (@ddc-sources/skkeleton の gather に相当)。
---- ユーザー辞書で確定済みの候補 (ランク持ち) を確定が新しい順に先頭へ置き、
---- 残りは見出しの辞書順で並べる。
---- abbrev モードでは入力の raw 候補を末尾に足す
---- (補完リストではスペース前置形は [辞書登録] の前、
---- abbrevWithSpace = false の入力そのままは [辞書登録] の後ろに並ぶ)
----@return skkelua.LspCandidate[]
-local function okurinasi_candidates()
-	local skkelua = require("skkelua")
-	local completions = skkelua.get_completion_result()
-	table.sort(completions, function(a, b)
-		return a[1] < b[1]
-	end)
-	local ranks = {}
-	for _, e in ipairs(skkelua.get_ranks()) do
-		ranks[e[1]] = e[2]
-	end
-	-- ランクを持たない候補はランク持ちの末尾より配置する。
-	-- 見出しの辞書順を保つよう先頭から順に負の方向にランクを振っていく
-	local global_rank = -1
-	local result = {}
-	for _, entry in ipairs(completions) do
-		local midasi, words = entry[1], entry[2]
-		for _, word in ipairs(words) do
-			local rank = ranks[word]
-			if rank == nil then
-				rank = global_rank
-				global_rank = global_rank - 1
-			end
-			result[#result + 1] = { word = word, midasi = midasi, okuri = "", type = "okurinasi", rank = rank }
-		end
-	end
-	table.sort(result, function(a, b)
-		return a.rank > b.rank
-	end)
-	local context = require("skkelua.store").get_context()
-	if context.mode == "abbrev" then
-		-- 入力そのものの raw 候補。completion.abbrevWithSpace (デフォルト true) だと
-		-- 前に半角スペースを足す (英単語を和文の中に空けて入れる用)。false なら
-		-- 入力そのまま (▽overall なら "overall")
-		local feed = context.state.henkanFeed
-		local with_space = require("skkelua.config").config.completion.abbrevWithSpace
-		local word = with_space and (" " .. feed) or feed
-		result[#result + 1] = { word = word, midasi = feed, okuri = "", type = "okurinasi", raw = true }
-	end
-	return result
-end
-
---- feed (送りのローマ字) から確定しうる送り仮名を列挙する
----@param kana_table skkelua.KanaTable
----@param feed string
----@return string[]
-local function feed_kana_candidates(kana_table, feed)
-	local kanas = {}
-	local seen = {}
-	for _, e in ipairs(kana_table) do
-		-- feed に前方一致し、残余 feed を持たないエントリだけが送り仮名として完成する
-		if vim.startswith(e[1], feed) and type(e[2]) == "table" and e[2][2] == "" then
-			local kana = e[2][1]
-			if kana ~= "" and not seen[kana] then
-				seen[kana] = true
-				kanas[#kanas + 1] = kana
-			end
-		end
-	end
-	return kanas
-end
-
---- 候補選択中 (▼送る) の候補: 引いてある変換候補をそのまま並べる
----@return skkelua.LspCandidate[]
-local function henkan_candidates()
-	local state = require("skkelua.store").get_context().state
-	if state.type ~= "henkan" then
-		return {}
-	end
-	local okuri = state.converter and state.converter(state.okuriFeed) or state.okuriFeed
-	local result = {}
-	for _, word in ipairs(state.candidates) do
-		result[#result + 1] = {
-			word = word,
-			midasi = state.word,
-			okuri = okuri,
-			type = state.mode,
-			affix = state.affix,
-		}
-	end
-	return result
-end
-
---- 送りあり変換入力 (▽おく*r) の候補:
---- 送りのローマ字からありうる送り仮名を列挙し、語幹 + 送り仮名の完成形を出す
----@return skkelua.LspCandidate[]
-local function okuriari_candidates()
-	local state = require("skkelua.store").get_context().state
-	if state.type ~= "input" or state.previousFeed then
-		return {}
-	end
-	local lib = require("skkelua.store").get_library()
-	local get_okuri_str = require("skkelua.okuri").get_okuri_str
-
-	local result = {}
-	local function collect(midasi, okuri)
-		for _, word in ipairs(lib:get_henkan_result("okuriari", midasi)) do
-			result[#result + 1] = { word = word, midasi = midasi, okuri = okuri, type = "okuriari" }
-		end
-	end
-
-	if state.okuriFeed ~= "" then
-		-- 送り仮名の先頭が確定済み (immediatelyOkuriConvert=false の「っ」など)。
-		-- 見出しは確定しているので、残り feed の展開だけ行う
-		local midasi = get_okuri_str(state.henkanFeed, state.okuriFeed)
-		if state.feed == "" then
-			collect(midasi, state.okuriFeed)
-		else
-			for _, kana in ipairs(feed_kana_candidates(state.table, state.feed)) do
-				collect(midasi, state.okuriFeed .. kana)
-			end
-		end
-	elseif state.feed ~= "" then
-		for _, kana in ipairs(feed_kana_candidates(state.table, state.feed)) do
-			collect(get_okuri_str(state.henkanFeed, kana), kana)
-		end
-	end
-	return result
-end
-
 --- pum で選択中の自前候補の word がカーソル前に挿入されていればそれを返す。
 --- insertOnSelect の選択挿入はバッファ上の pre-edit を候補 word で
 --- 置き換えるため、その間に届いた再リクエストは pre-edit を見つけられない
@@ -208,6 +75,17 @@ end
 ---@return string? word
 ---@return table? data 候補の data (skkelua/midasi/word/type)
 local function selected_word(before_cursor)
+	local completion = require("skkelua.completion")
+	local external, item = completion.selection()
+	if external then
+		-- 選択挿入は pre-edit を候補の文字列で置き換える。UI が実際に挿入した
+		-- 文字列は分からないので、候補の挿入文字列がカーソル前にあるかで判断する
+		local word = completion.inserted_text(item)
+		if word and word ~= "" and vim.endswith(before_cursor, word) then
+			return word, completion.item_data(item)
+		end
+		return nil
+	end
 	if vim.fn.pumvisible() == 0 then
 		return nil
 	end
@@ -224,25 +102,6 @@ local function selected_word(before_cursor)
 	return word, item.data
 end
 
---- complete_info() の item が skkelua の候補なら、その data を返す
----@param pum_item? table
----@return table?
-function M.item_data(pum_item)
-	local data = vim.tbl_get(pum_item or {}, "user_data", "nvim", "lsp", "completion_item", "data")
-	if type(data) == "table" and data.skkelua == true then
-		return data
-	end
-	return nil
-end
-
---- complete_info() の item が skkelua の [辞書登録] 項目かどうか
----@param pum_item? table
----@return boolean
-function M.is_register_item(pum_item)
-	local data = M.item_data(pum_item)
-	return data ~= nil and data.register == true
-end
-
 --- pum で選択中の自前候補の word が現在のカーソル前に挿入されていれば返す
 --- (deletePreEdit の削除対象判定や、選択挿入中の接尾辞開始に使う)
 ---@return string? word
@@ -257,32 +116,15 @@ end
 --- nil を返した場合は応答自体を保留する (complete() を走らせない)
 ---@return table? CompletionList
 local function make_completion_list()
-	local empty = { isIncomplete = true, items = {} }
-	local skkelua = require("skkelua")
-	local phase = skkelua.phase()
-	local supported = phase == "input:okurinasi" or phase == "input:okuriari" or phase == "henkan"
-	if not skkelua.is_enabled() or not supported then
-		return empty
-	end
-	local pre_edit = skkelua.get_pre_edit()
-	-- 変換入力中はかなが無ければ出さない (henkan は候補が引けているので不要)
-	if pre_edit == "" or (phase ~= "henkan" and skkelua.get_prefix() == "") then
-		return empty
-	end
-
-	-- カーソル前のテキストが pre-edit (▽かんじ) で終わっていることを確認し、
-	-- その開始位置を置換範囲にする。
 	-- Note: params.position は使わない。pre-edit の再描画 (BS + 再挿入) は
 	--       InsertCharPre ごとにリクエストを積むので、後発の処理時点では
 	--       バッファが先へ進んでいることがある。クライアント (builtin) も
 	--       応答を処理時点のカーソルで解釈するため、常に現在位置で組み立てる
-	local buf = vim.api.nvim_get_current_buf()
 	local pos = vim.api.nvim_win_get_cursor(0)
-	local row = pos[1] - 1
-	local col = pos[2] -- utf-8 (byte)
-	local line = (vim.api.nvim_buf_get_lines(buf, row, row + 1, false) or {})[1] or ""
-	local before_cursor = line:sub(1, col)
-	if not vim.endswith(before_cursor, pre_edit) then
+	local row, col = pos[1] - 1, pos[2] -- utf-8 (byte)
+	local line = (vim.api.nvim_buf_get_lines(0, row, row + 1, false) or {})[1] or ""
+	local list, reason = require("skkelua.lsp.list").build({ line = line, row = row, col = col })
+	if reason == "stale" then
 		-- insertOnSelect の選択挿入中 (バッファは pre-edit でなく候補 word) に
 		-- 届いた後発リクエスト。pre-edit の再描画は InsertCharPre ごとに
 		-- リクエストを積むため、選択挿入を起こした応答の後にも同じ状態への
@@ -290,30 +132,16 @@ local function make_completion_list()
 		-- 同じ候補を返し直しても complete() の再実行で typed text が候補 word に
 		-- すり替わり <C-p>/<C-e> で pre-edit に戻れなくなる。
 		-- 応答を保留して、表示中の pum と選択状態をそのまま保つ
-		if selected_word(before_cursor) then
+		if selected_word(line:sub(1, col)) then
 			return nil
 		end
-		return empty
-	end
-	local start_col = col - #pre_edit
-	local range = {
-		start = { line = row, character = start_col },
-		["end"] = { line = row, character = col },
-	}
-
-	local marker = require("skkelua.config").config.markerHenkan
-	local modify_candidate = require("skkelua.candidate").modify_candidate
-
-	local candidates
-	if phase == "input:okurinasi" then
-		candidates = okurinasi_candidates()
-	elseif phase == "input:okuriari" then
-		candidates = okuriari_candidates()
-	else
-		candidates = henkan_candidates()
+		return list
+	elseif reason then
+		return list
 	end
 
 	local instant_insert = completion_config().insertOnSelect
+	local pre_edit = require("skkelua").get_pre_edit()
 	-- typed text (pre-edit) に ASCII 英数字が含まれるとクライアント側の
 	-- fuzzy フィルタが有効になり、素の label ではマッチしなくなる。
 	-- その場合は label に pre-edit を前置してフィルタを通し、
@@ -323,140 +151,76 @@ local function make_completion_list()
 	-- deferOkuri で送り仮名が確定した直後 (▽おく*る) は、第一候補を
 	-- 自動選択して即挿入する (completeopt の noselect をこの応答だけ外す)
 	local auto_select = false
-	if instant_insert and phase == "input:okuriari" then
+	if instant_insert and require("skkelua").phase() == "input:okuriari" then
 		local state = require("skkelua.store").get_context().state
 		auto_select = completion_config().deferOkuri and state.feed == "" and state.okuriFeed ~= ""
 	end
-	set_completeopt(buf, auto_select)
+	set_completeopt(0, auto_select)
 
-	local items = {}
-	-- abbrev の raw 候補のうち入力そのもの (abbrevWithSpace = false) は
-	-- 辞書候補ではないので [辞書登録] より後ろに回す。スペース前置形は
-	-- 英単語をそのまま入れる主用途なので [辞書登録] より前に置く
-	local raw_trailing = not completion_config().abbrevWithSpace
-	local trailing = {}
-	local seen = {}
-	for _, c in ipairs(candidates) do
-		-- 送りありは語幹 + 送り仮名の完成形を挿入する
-		local display = (modify_candidate(c.word, c.affix) or c.word) .. c.okuri
-		if not seen[display] then
-			seen[display] = true
-			local annotation = c.word:match(";(.*)$")
-			local item = {
-				label = display,
-				labelDetails = annotation and { description = annotation } or nil,
-				detail = c.midasi,
-				kind = vim.lsp.protocol.CompletionItemKind.Text,
-				textEdit = {
-					range = range,
-					newText = display,
-				},
-				-- okuri (送り仮名の生かな) は purgeCandidate が ▽henkanFeed*okuriFeed
-				-- を組み立て直すのに使う (midasi は語幹 + 送り仮名アルファベットの
-				-- 辞書見出し形式で、そのままでは送り仮名を分離できない)。
-				-- text は確定時にバッファへ入れる文字列 (init.lua の finalize_completion)
-				data = {
-					skkelua = true,
-					midasi = c.midasi,
-					word = c.word,
-					type = c.type,
-					okuri = c.okuri,
-					raw = c.raw,
-					text = display,
-				},
-			}
-			if instant_insert then
-				-- insertOnSelect: filterText を持たせないことで、クライアントの
-				-- 挿入 word が newText (候補そのもの) になり、<C-n> での
-				-- 選択と同時に pre-edit 全体が候補へ置き換わる
-				item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.PlainText
-				if prefixed_label then
-					item.label = pre_edit .. display
-					item.data.display = display
-				end
-			else
-				-- クライアントは typed text と filterText を照合する。
-				-- 送りなし入力中は続きのかな入力で絞り込めるよう marker + 見出し、
-				-- それ以外 (送りあり入力・候補選択) は pre-edit そのもの
-				-- (絞り込みは isIncomplete の再リクエストが担う)
-				item.filterText = phase == "input:okurinasi" and (marker .. c.midasi) or pre_edit
-				-- Note: PlainText だと word が filterText に fallback した場合に
-				--       newText が適用されない (単なる再挿入になる)。
-				--       Snippet format は確定時に挿入 word を削除して
-				--       newText を展開するため、pre-edit を候補で置換できる
-				item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet
-				item.textEdit.newText = escape_snippet(display)
-			end
-			if c.raw and raw_trailing then
-				trailing[#trailing + 1] = item
-			else
-				items[#items + 1] = item
-			end
-		end
-	end
-
-	-- 新しい読みを登録する項目を辞書候補の後ろに置く (候補が無い読みでも pum が開く)。
-	-- 挿入テキストは pre-edit 自身にして、フォーカスや確定でバッファが
-	-- 変わらないようにする。確定すると CompleteDone から登録プロンプトが開く
-	-- (登録プロンプトの中ではネストしたプロンプトが積まれる)。
-	local state = require("skkelua.store").get_context().state
-	local registrable = true
-	local midasi
-	if phase == "henkan" then
-		midasi = state.word
-	elseif phase == "input:okuriari" then
-		-- 送り仮名が確定するまでは登録する読みが定まらない
-		registrable = registrable and state.feed == "" and state.okuriFeed ~= ""
-		midasi = registrable and require("skkelua.okuri").get_okuri_str(state.henkanFeed, state.okuriFeed)
-	else
-		midasi = state.henkanFeed
-	end
-	if registrable then
-		local item = {
-			label = "[辞書登録]",
-			detail = midasi,
-			kind = vim.lsp.protocol.CompletionItemKind.Text,
-			textEdit = {
-				range = range,
-				newText = pre_edit,
-			},
-			data = { skkelua = true, register = true, text = pre_edit },
-		}
+	for _, item in ipairs(list.items) do
 		if instant_insert then
-			item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.PlainText
+			-- insertOnSelect: filterText を持たせないことで、クライアントの
+			-- 挿入 word が newText (候補そのもの) になり、<C-n> での
+			-- 選択と同時に pre-edit 全体が候補へ置き換わる
+			item.filterText = nil
 			if prefixed_label then
+				item.data.display = item.label
 				item.label = pre_edit .. item.label
-				item.data.display = "[辞書登録]"
 			end
 		else
-			item.filterText = pre_edit
+			-- Note: PlainText だと word が filterText に fallback した場合に
+			--       newText が適用されない (単なる再挿入になる)。
+			--       Snippet format は確定時に挿入 word を削除して
+			--       newText を展開するため、pre-edit を候補で置換できる
 			item.insertTextFormat = vim.lsp.protocol.InsertTextFormat.Snippet
-			item.textEdit.newText = escape_snippet(pre_edit)
+			item.textEdit.newText = escape_snippet(item.textEdit.newText)
 		end
-		items[#items + 1] = item
 	end
-	vim.list_extend(items, trailing)
+	return list
+end
 
-	-- クライアント (builtin) は sortText (無ければ label) で並べ替える。
-	-- 辞書順 (ユーザー辞書 -> グローバル辞書のマージ順) と上の配置を保つよう
-	-- 応答順の連番を振る
-	for i, item in ipairs(items) do
-		item.sortText = ("%05d"):format(i)
+--- 候補の確定 (workspace/executeCommand) を処理する。
+--- クライアントは確定したときだけ item.command を実行するので、
+--- <Esc>/<C-e> などで閉じた場合は何も起きない
+---@param params {command: string, arguments?: table[]}
+local function execute_command(params)
+	if params.command ~= list_of.ACCEPT_COMMAND then
+		-- level 0: クライアントへ返すエラーに位置情報を付けない
+		error("unknown command: " .. tostring(params.command), 0)
 	end
-
-	return { isIncomplete = true, items = items }
+	local data = params.arguments and params.arguments[1]
+	if not (data and data.skkelua) then
+		return
+	end
+	if data.register then
+		-- [辞書登録] 項目: 登録プロンプトを開く。サーバーはリクエストを
+		-- vim.schedule で処理するので、補完の終了処理は既に抜けている。
+		-- 挿入テキストが pre-edit のままなので
+		-- handle 側では変換入力の続きとして registerWord が実行される
+		require("skkelua").handle("handleKey", { ["function"] = "registerWord" })
+		return
+	end
+	-- abbrev の raw 候補 (入力そのもの) は辞書へ登録しない
+	if data.raw then
+		return
+	end
+	require("skkelua").complete_callback(data.midasi, data.word, data.type)
 end
 
 --------------------------------------------------------------------
 -- in-process server
 --------------------------------------------------------------------
 
+--- in-process サーバーの transport (vim.lsp.start の cmd)
+---@param complete fun(params: table): table? textDocument/completion の応答。
+---   nil は応答保留 (選択挿入中のバースト)
 ---@return fun(dispatchers: table): table
-local function new_server()
+local function new_server(complete)
 	return function(dispatchers)
 		local closing = false
 		local srv = {}
-		srv.request = vim.schedule_wrap(function(method, params, handler)
+		local request_id = 0
+		local function handle(method, params, handler)
 			if method == "initialize" then
 				handler(nil, {
 					capabilities = {
@@ -464,24 +228,44 @@ local function new_server()
 						completionProvider = {
 							triggerCharacters = trigger_characters(),
 						},
+						executeCommandProvider = { commands = { list_of.ACCEPT_COMMAND } },
 					},
 				})
 			elseif method == "textDocument/completion" then
-				local list = make_completion_list()
-				-- nil は応答保留 (選択挿入中のバースト)。放置されたリクエストは
-				-- クライアントが次の trigger 時に cancel してくれる
-				if list then
+				local ok, list = pcall(complete, params)
+				if not ok then
+					handler({ code = -32603, message = tostring(list) }, nil)
+				elseif list then
+					-- nil は応答保留 (選択挿入中のバースト)。放置されたリクエストは
+					-- クライアントが次の trigger 時に cancel してくれる
 					table.insert(M._requests, { params = params, items = #list.items })
 					handler(nil, list)
 				end
+			elseif method == "workspace/executeCommand" then
+				local ok, err = pcall(execute_command, params)
+				handler(not ok and { code = -32603, message = tostring(err) } or nil, nil)
 			elseif method == "shutdown" then
 				handler(nil, nil)
+			else
+				-- 応答が無いとクライアントのリクエストが残り続ける
+				handler(
+					{ code = vim.lsp.protocol.ErrorCodes.MethodNotFound, message = "method not found: " .. method },
+					nil
+				)
 			end
-		end)
+		end
+		function srv.request(method, params, handler)
+			request_id = request_id + 1
+			vim.schedule(function()
+				handle(method, params, handler)
+			end)
+			return true, request_id
+		end
 		function srv.notify(method, _)
 			if method == "exit" then
 				dispatchers.on_exit(0, 15)
 			end
+			return true
 		end
 		function srv.is_closing()
 			return closing
@@ -496,42 +280,6 @@ end
 --------------------------------------------------------------------
 -- attach / detach
 --------------------------------------------------------------------
-
---- 候補確定時にユーザー辞書へ登録する
---- (テスト用に reason と completed_item を注入できるよう分離している)
----@param reason? string v:event.reason ("accept"/"cancel"/"discard")
----@param completed_item? table v:completed_item
-function M._on_complete_done(reason, completed_item)
-	-- <Esc>/<C-e> などで確定せず閉じた場合 (cancel/discard) は登録しない。
-	-- reason が取れない環境では従来通り登録する
-	if reason ~= nil and reason ~= "accept" then
-		return
-	end
-	local item = vim.tbl_get(completed_item or {}, "user_data", "nvim", "lsp", "completion_item")
-	local data = item and item.data
-	if not (data and data.skkelua) then
-		return
-	end
-	if data.register then
-		-- [辞書登録] 項目: ins-completion の終了処理から抜けてから
-		-- 登録プロンプトを開く。挿入テキストが pre-edit のままなので
-		-- handle 側では変換入力の続きとして registerWord が実行される
-		vim.schedule(function()
-			require("skkelua").handle("handleKey", { ["function"] = "registerWord" })
-		end)
-		return
-	end
-	-- abbrev の raw 候補 (入力そのもの) は辞書へ登録しない
-	if data.raw then
-		return
-	end
-	require("skkelua").complete_callback(data.midasi, data.word, data.type)
-end
-
-local function on_complete_done()
-	M._on_complete_done(vim.tbl_get(vim.v.event, "reason"), vim.v.completed_item)
-end
-
 
 --- buffer-local 'completeopt' をグローバル値に戻す
 ---@param buf integer
@@ -565,10 +313,6 @@ local function enable_completion(client_id, buf)
 	vim.lsp.completion.enable(false, client_id, buf)
 	vim.lsp.completion.enable(true, client_id, buf, { autotrigger = true, convert = convert_item })
 	set_completeopt(buf, false)
-	vim.api.nvim_create_autocmd("CompleteDone", {
-		group = vim.api.nvim_create_augroup("skkelua-lsp-complete-done", { clear = true }),
-		callback = on_complete_done,
-	})
 end
 
 --- 現在のバッファで補完を有効にする (skkelua-enable-post から呼ばれる)
@@ -579,8 +323,15 @@ function M.attach()
 	local buf = vim.api.nvim_get_current_buf()
 	local client_id = vim.lsp.start({
 		name = CLIENT_NAME,
-		cmd = new_server(),
-	}, { bufnr = buf })
+		cmd = new_server(make_completion_list),
+		skkelua_builtin_completion = true,
+	}, {
+		bufnr = buf,
+		-- 外部 UI 向けの共有クライアント (start) を組み込みの補完に流用しない
+		reuse_client = function(client)
+			return client.config.skkelua_builtin_completion == true and not client:is_stopped()
+		end,
+	})
 	if not client_id then
 		return
 	end
@@ -593,16 +344,26 @@ function M.attach()
 	end
 end
 
---- 現在のバッファで補完を明示的にトリガーする。
---- autotrigger はトリガー文字のタイプでしか働かないため、辞書登録の
---- キャンセルなどタイプを伴わずに pre-edit が復元された時に呼ぶ
-function M.trigger()
+---@param buf integer
+---@return vim.lsp.Client?
+local function builtin_client(buf)
+	for _, client in ipairs(vim.lsp.get_clients({ name = CLIENT_NAME, bufnr = buf })) do
+		if client.config.skkelua_builtin_completion then
+			return client
+		end
+	end
+end
+
+--- タイプを伴わずに pre-edit が復元された (辞書登録のキャンセルなど) ことを知らせる。
+--- autotrigger はトリガー文字のタイプでしか働かないため、builtin の補完は
+--- ここで明示的に再要求する。外部の補完 UI は User イベントで再要求する
+function M.pre_edit_restored()
+	pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "skkelua-pre-edit-restored", modeline = false })
 	if not completion_config().enabled or vim.fn.mode() ~= "i" then
 		return
 	end
 	local buf = vim.api.nvim_get_current_buf()
-	local client = vim.lsp.get_clients({ name = CLIENT_NAME, bufnr = buf })[1]
-	if not client then
+	if not builtin_client(buf) then
 		return
 	end
 	vim.lsp.completion.get()
@@ -611,7 +372,7 @@ end
 --- 現在のバッファで補完を無効にする (skkelua-disable-post から呼ばれる)
 function M.detach()
 	local buf = vim.api.nvim_get_current_buf()
-	local client = vim.lsp.get_clients({ name = CLIENT_NAME, bufnr = buf })[1]
+	local client = builtin_client(buf)
 	if client then
 		vim.lsp.completion.enable(false, client.id, buf)
 	end
@@ -640,11 +401,92 @@ function M.setup_autocmds()
 		group = group,
 		callback = function(ev)
 			local client = vim.lsp.get_client_by_id(ev.data.client_id)
-			if client and client.name == CLIENT_NAME then
+			if client and client.config.skkelua_builtin_completion then
 				enable_completion(ev.data.client_id, ev.buf)
 			end
 		end,
 	})
+end
+
+--------------------------------------------------------------------
+-- 外部の補完 UI 向け
+--------------------------------------------------------------------
+
+--- 補完要求の位置から、読み込み済みバッファ上の入力行を引く。
+--- ドキュメントを開くことはしない。URI と入力先の対応づけは
+--- この関数が担う範囲 (バッファ名 = URI) に限る
+---@param params table textDocument/completion の params。character は UTF-8 のバイトオフセット
+---@return {line: string, row: integer, col: integer}?
+local function request_context(params)
+	local uri = vim.tbl_get(params, "textDocument", "uri")
+	local row = vim.tbl_get(params, "position", "line")
+	local col = vim.tbl_get(params, "position", "character")
+	if not (uri and row and col) then
+		return nil
+	end
+	local function matches(bufnr)
+		return vim.api.nvim_buf_is_loaded(bufnr) and vim.uri_from_bufnr(bufnr) == uri
+	end
+	-- 補完要求は打鍵ごとに届くので、多くの場合に当たる現在のバッファを先に調べ、
+	-- 仮想ドキュメントなど現在のバッファでない場合だけ全バッファを走査する。
+	-- 名前の無いバッファは全て同じ URI になるので、現在のバッファを先に調べる
+	-- ことがそのまま要求元の特定になる (他の名前無しバッファと取り違えるのは
+	-- 現在のバッファが要求元でない場合だけで、その行は pre-edit で終わらず
+	-- 候補は出ない)
+	local bufnr = vim.api.nvim_get_current_buf()
+	if not matches(bufnr) then
+		bufnr = nil
+		for _, candidate in ipairs(vim.api.nvim_list_bufs()) do
+			if matches(candidate) then
+				bufnr = candidate
+				break
+			end
+		end
+	end
+	local line = bufnr and vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
+	if line then
+		return { line = line, row = row, col = col }
+	end
+end
+
+--- 外部の補完 UI が使う LSP クライアントを、バッファに一度だけ attach する。
+--- クライアントはバッファ間で共有され、SKK の有効・無効に関係なく残る。
+--- 組み込みの補完 UI は有効化しない。候補は UI 非依存の形のまま返す
+---@param bufnr? integer 省略時は現在のバッファ
+---@return integer? client_id
+function M.start(bufnr)
+	if bufnr == nil or bufnr == 0 then
+		bufnr = vim.api.nvim_get_current_buf()
+	end
+	for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, _uninitialized = true })) do
+		if client.config.skkelua_external_completion and not client:is_stopped() then
+			return client.id
+		end
+	end
+	return vim.lsp.start({
+		name = CLIENT_NAME,
+		cmd = new_server(function(params)
+			local context = request_context(params)
+			return context and list_of.build(context) or { isIncomplete = true, items = {} }
+		end),
+		skkelua_external_completion = true,
+	}, {
+		bufnr = bufnr,
+		reuse_client = function(client)
+			return client.config.skkelua_external_completion == true and not client:is_stopped()
+		end,
+	})
+end
+
+--- テスト用: 確定コマンドを直接実行する
+---@param params {command: string, arguments?: table[]}
+function M._execute_command(params)
+	execute_command(params)
+end
+
+--- テスト用: 任意のバッファへ attach できるトランスポート
+function M._new_server()
+	return new_server(make_completion_list)
 end
 
 --- テスト用: completion list を直接組み立てる

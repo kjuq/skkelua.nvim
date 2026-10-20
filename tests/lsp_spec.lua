@@ -362,7 +362,7 @@ t.test("okuriari candidate registers with okuriari type", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })
 	skkelua._handle_request("enable", {}, vim_status)
-	-- CompleteDone 相当 (data.type = okuriari)
+	-- accept コマンドが行う学習 (data.type = okuriari)
 	skkelua.complete_callback("はしr", "走", "okuriari")
 	local lib = require("skkelua.store").get_library()
 	t.assert_equals({ "走" }, lib:get_henkan_result("okuriari", "はしr"))
@@ -528,6 +528,21 @@ t.test("register item is hidden while okuri is undetermined", function()
 	vim.cmd.bwipeout({ bang = true })
 end)
 
+t.test("completeopt is still prepared when a response has no items", function()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true, insertOnSelect = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+
+	-- 辞書に無い ▽おく*r は候補も [辞書登録] も無いが、以前の応答で
+	-- 外れた noselect を戻すため buffer-local の 'completeopt' は整える
+	setup_state({ "O", "k", "u", "R" })
+	vim.bo.completeopt = "menu,popup"
+	local list = require("skkelua.lsp")._make_completion_list()
+	t.assert_equals(0, #list.items)
+	t.assert_true(vim.bo.completeopt:find("noselect", 1, true) ~= nil, vim.bo.completeopt)
+	vim.cmd.bwipeout({ bang = true })
+end)
+
 t.test("register item appears inside the prompt buffer", function()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })
@@ -557,16 +572,9 @@ t.test("accepting register item opens the prompt via handle", function()
 		called[#called + 1] = { func = func, opts = opts }
 	end
 	local ok, err = pcall(function()
-		lsp_mod._on_complete_done("accept", {
-			user_data = {
-				nvim = {
-					lsp = {
-						completion_item = {
-							data = { skkelua = true, register = true },
-						},
-					},
-				},
-			},
+		lsp_mod._execute_command({
+			command = "skkelua.accept",
+			arguments = { { skkelua = true, register = true } },
 		})
 		vim.wait(50, function()
 			return #called > 0
@@ -584,39 +592,55 @@ t.test("accepting register item opens the prompt via handle", function()
 	t.assert_equals({}, lib:get_henkan_result("okurinasi", "ぬぬ"))
 end)
 
-t.test("CompleteDone registers only on accept", function()
+t.test("accepting a candidate learns it through its command", function()
+	setup_library()
 	local skkelua = require("skkelua")
 	skkelua.config({ completion = { enabled = true } })
 	skkelua._handle_request("enable", {}, vim_status)
+	setup_henkan_state()
 	local lib = require("skkelua.store").get_library()
 	local lsp_mod = require("skkelua.lsp")
 
-	local function completed_item(word)
-		return {
-			user_data = {
-				nvim = {
-					lsp = {
-						completion_item = {
-							data = { skkelua = true, midasi = "むこう", word = word, type = "okurinasi" },
-						},
-					},
-				},
-			},
-		}
-	end
+	local list = lsp_mod._make_completion_list()
+	local item = vim.iter(list.items):find(function(i)
+		return i.data.word == "漢字"
+	end)
+	t.assert_equals("skkelua.accept", item.command.command)
+	t.assert_equals(item.data, item.command.arguments[1])
 
-	-- <Esc> などによる discard / cancel では登録しない
-	lsp_mod._on_complete_done("discard", completed_item("無香"))
-	lsp_mod._on_complete_done("cancel", completed_item("無効"))
-	t.assert_equals({}, lib:get_henkan_result("okurinasi", "むこう"))
+	-- 確定されなかった候補は command が実行されないので学習されない
+	t.assert_equals("感じ", lib:get_henkan_result("okurinasi", "かんじ")[1])
+	lsp_mod._execute_command(item.command)
+	t.assert_equals("漢字", lib:get_henkan_result("okurinasi", "かんじ")[1])
+	vim.cmd.bwipeout({ bang = true })
+end)
 
-	-- accept (<C-y> 等) では登録する
-	lsp_mod._on_complete_done("accept", completed_item("向こう"))
-	t.assert_equals({ "向こう" }, lib:get_henkan_result("okurinasi", "むこう"))
+t.test("the server runs the accept command sent by a client", function()
+	setup_library()
+	local skkelua = require("skkelua")
+	skkelua.config({ completion = { enabled = true } })
+	skkelua._handle_request("enable", {}, vim_status)
+	setup_henkan_state()
+	local lib = require("skkelua.store").get_library()
 
-	-- reason が取れない環境では従来通り登録する
-	lsp_mod._on_complete_done(nil, completed_item("尨"))
-	t.assert_equals({ "尨", "向こう" }, lib:get_henkan_result("okurinasi", "むこう"))
+	local buf = vim.api.nvim_get_current_buf()
+	local client_id = vim.lsp.start({ name = "skkelua", cmd = require("skkelua.lsp")._new_server() }, { bufnr = buf })
+	local client = assert(vim.lsp.get_client_by_id(client_id))
+	t.assert_true(vim.wait(1000, function()
+		return client.initialized
+	end))
+	t.assert_equals({ "skkelua.accept" }, client.server_capabilities.executeCommandProvider.commands)
+
+	local item = vim.iter(require("skkelua.lsp")._make_completion_list().items):find(function(i)
+		return i.data.word == "漢字"
+	end)
+	client:exec_cmd(item.command, { bufnr = buf })
+	local learned = vim.wait(1000, function()
+		return lib:get_henkan_result("okurinasi", "かんじ")[1] == "漢字"
+	end)
+	client:stop(true)
+	vim.cmd.bwipeout({ bang = true })
+	t.assert_true(learned)
 end)
 
 t.test("complete_callback registers the selected candidate", function()
@@ -626,7 +650,7 @@ t.test("complete_callback registers the selected candidate", function()
 	skkelua._handle_request("enable", {}, vim_status)
 	setup_henkan_state()
 
-	-- CompleteDone 相当の処理 (data 付き候補の確定)
+	-- accept コマンドが行う学習 (data 付き候補の確定)
 	skkelua.complete_callback("かんじ", "漢字")
 	local lib = require("skkelua.store").get_library()
 	local candidates = lib:get_henkan_result("okurinasi", "かんじ")
@@ -666,9 +690,7 @@ t.test("abbrev input adds a space-prefixed raw candidate above [辞書登録]", 
 	t.assert_equals(true, raw.data.raw)
 
 	-- raw 候補の確定ではユーザー辞書に登録されない
-	require("skkelua.lsp")._on_complete_done("accept", {
-		user_data = { nvim = { lsp = { completion_item = { data = raw.data } } } },
-	})
+	require("skkelua.lsp")._execute_command(raw.command)
 	t.assert_equals({ "全体" }, lib:get_henkan_result("okurinasi", "overall"))
 
 	vim.cmd.bwipeout({ bang = true })
@@ -723,9 +745,7 @@ t.test("completion.abbrevWithSpace=false uses the raw input without a leading sp
 	t.assert_equals(true, raw.data.raw)
 
 	-- 入力そのものの候補を確定しても辞書には登録されない
-	require("skkelua.lsp")._on_complete_done("accept", {
-		user_data = { nvim = { lsp = { completion_item = { data = raw.data } } } },
-	})
+	require("skkelua.lsp")._execute_command(raw.command)
 	t.assert_equals({ "全体" }, lib:get_henkan_result("okurinasi", "overall"))
 
 	vim.cmd.bwipeout({ bang = true })

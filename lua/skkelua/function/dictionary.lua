@@ -182,11 +182,11 @@ local function register_word_float(context)
 		replace_pre_edit(ctx:to_string())
 		ctx.preEdit:sync(ctx:to_string())
 		-- タイプを伴わない復元では補完の autotrigger が働かないため、
-		-- キー処理が終わって insert に入ったところで明示的にトリガーする
+		-- キー処理が終わって insert に入ったところで補完 UI に知らせる
 		vim.api.nvim_create_autocmd("SafeState", {
 			once = true,
 			callback = function()
-				require("skkelua.lsp").trigger()
+				require("skkelua.lsp").pre_edit_restored()
 			end,
 		})
 	end

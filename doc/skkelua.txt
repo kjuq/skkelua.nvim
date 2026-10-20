@@ -13,6 +13,7 @@ INTERFACE                                                  |skkelua-interface|
   AUTOCMDS                                                  |skkelua-autocmds|
 OPTIONS                                                      |skkelua-options|
 COMPLETION                                                |skkelua-completion|
+  EXTENSION                                     |skkelua-completion-extension|
 MACRO                                                          |skkelua-macro|
 INDICATOR                                                  |skkelua-indicator|
 SOURCES                                                      |skkelua-sources|
@@ -175,6 +176,11 @@ AUTOCMDS                                                    *skkelua-autocmds*
 		参照できます。
 	skkelua-handled
 		キー処理の完了後。
+	skkelua-pre-edit-restored
+		辞書登録のキャンセルなど、タイプを伴わずに pre-edit が復元された
+		後。タイプを伴わないので補完 UI の自動表示は働きません。UI の補完を
+		再要求するにはこのイベントで呼んでください (組み込みの補完は
+		skkelua が再要求します)。
 	skkelua-persistent-enable / skkelua-persistent-disable
 		persistent mode の有効化・無効化時。
 
@@ -310,8 +316,10 @@ pureSpace (|skkelua-options|) も合わせて有効にすると快適です。
 - 候補の選択挿入中に > を押すと、その候補で確定して接尾辞入力 (▽>) に
   入ります (▼ 選択中の > と同じ動作)。接尾辞入力中 (▽>けい) も
   補完メニューに候補が出ます
-- 候補は |v:completed_item| 確定時 (CTRL-Y など) に pre-edit ごと置換され、
-  ユーザー辞書へ登録されます (以後の候補順に反映されます)
+- 候補は確定時 (CTRL-Y など) に pre-edit ごと置換され、ユーザー辞書へ
+  登録されます (以後の候補順に反映されます)。登録は候補の command
+  (|skkelua-completion-extension|) として実行されるため、確定せず閉じた
+  (CTRL-E や <Esc>) 場合は登録されません
 - 候補を未選択のまま CTRL-Y を押すと、変換せずかなのまま確定します
   (デフォルトマップの kakuteiPassThrough、|skkelua-kanatable| 参照)
 - 送りなし入力の候補は、ユーザー辞書で確定した候補 (ランク持ち) が
@@ -355,6 +363,67 @@ Note: |vim.lsp.completion.enable()| は最初にバッファの補完状態を�
 呼び出しの opts で動作が固定されます。skkelua が有効なバッファに対して
 他の設定・プラグインが opts 無しで enable(true) を呼ぶと、skkelua の
 autotrigger が失われて候補が自動表示されなくなります。
+
+==============================================================================
+EXTENSION                                       *skkelua-completion-extension*
+
+外部補完との接続 ~
+
+Neovim 組み込み以外の補完 UI でも、skkelua の候補を LSP 経由で受け取れます。
+候補の生成・辞書の学習・[辞書登録] は skkelua の in-process LSP サーバーが担い、
+UI 側は通常の LSP クライアントとして接続します。
+
+require("skkelua.lsp").start({bufnr}?)                   *skkelua.lsp.start()*
+	{bufnr} (省略時は現在のバッファ) を共有 LSP クライアントへ attach し、
+	client id を返します (起動できなければ nil)。クライアントはバッファ間で
+	共有され、SKK の有効・無効に関係なく残ります。組み込みの補完 UI は
+	有効化しません (|skkelua-completion| の completion.enabled とは
+	独立です)。
+	候補は補完要求の位置 (UTF-8 のバイトオフセット) と、読み込み済み
+	バッファ名 (= URI) から引きます。名前の無いバッファは全て同じ URI に
+	なるため、現在のバッファが要求元として扱われます。仮想ドキュメントを
+	使う場合は、バッファ名を要求の URI に合わせてください。
+	返す候補はスニペット化などの UI 固有の整形をしていません。
+>lua
+	vim.api.nvim_create_autocmd("InsertEnter", {
+		callback = function()
+			require("skkelua.lsp").start()
+		end,
+	})
+<
+候補には command "skkelua.accept" が付いており、サーバーが
+`executeCommandProvider` で宣言しています。クライアントが候補の確定時
+(キャンセル時ではなく) に |vim.lsp.Client:exec_cmd()| 相当で command を
+実行すると、ユーザー辞書への学習と [辞書登録] の登録プロンプトが動きます。
+command を実行しない UI では、これらは動きません (pum.vim と nvim-cmp を
+自動検出する場合も同じです)。
+
+require("skkelua.completion").set_adapter({adapter}?)
+                                            *skkelua.completion.set_adapter()*
+	補完メニューを持つ UI を skkelua のキー処理 (CTRL-Y, <CR> など) へ
+	接続します。nil で自動検出に戻ります。{adapter} のフィールド:
+	- selected: `fun(): table?`
+	  メニューで選択中の LSP CompletionItem (data を含む)。メニューが無い
+	  か未選択なら nil を返します。item を持てない UI は空のテーブルで
+	  「選択中」だけを伝えられます。例外を投げた場合は未選択として扱います
+	- confirm: `fun(): string`
+	  選択中の候補を確定するキー列 (|nvim_replace_termcodes()| 済み)。
+	  文字列が "<Cmd>" で始まる場合は、skkelua が <CR> を補って実行します。
+	  同期的にテキストを変更しないでください
+>lua
+	require("skkelua.completion").set_adapter({
+		selected = function()
+			return my_menu.selected_item()
+		end,
+		confirm = function()
+			return vim.keycode("<Cmd>lua my_menu.confirm()<CR>")
+		end,
+	})
+<
+明示的に設定したアダプターは自動検出より優先されます。アダプターを設定
+している間は、組み込みの補完メニューや pum.vim / nvim-cmp の表示状態は
+参照されません。アダプターを設定しない場合は、表示中の pum.vim と nvim-cmp
+を自動検出して CTRL-Y などの確定を連携します。
 
 ==============================================================================
 MACRO                                                          *skkelua-macro*

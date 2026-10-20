@@ -504,3 +504,87 @@ t.test("< is converted immediately in zenkaku mode", function()
 		t.assert_equals({ "＜" }, vim.fn.getline(1, "$"))
 	end)
 end)
+
+--- 実際の builtin 補完メニューを開いて label の項目を選び、keys を打つ。
+--- skkelua.complete_callback と registerWord の呼び出しを記録して返す
+---@param label string 選択する項目の表示
+---@param keys string 選択後に打つキー
+local function with_real_menu(label, keys)
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okurinasi", "かんじ", "感じ")
+	lib:register_henkan_result("okurinasi", "かんじ", "漢字")
+	require("skkelua").config({ completion = { enabled = true } })
+
+	local skkelua = require("skkelua")
+	local calls = { learned = {}, handled = {} }
+	local complete_callback, handle = skkelua.complete_callback, skkelua.handle
+	skkelua.complete_callback = function(...)
+		calls.learned[#calls.learned + 1] = { ... }
+		return complete_callback(...)
+	end
+	skkelua.handle = function(func, handle_opts)
+		if func == "handleKey" and handle_opts["function"] == "registerWord" then
+			calls.handled[#calls.handled + 1] = handle_opts["function"]
+			return
+		end
+		return handle(func, handle_opts)
+	end
+	local ok, err = pcall(with_buffer, function()
+		-- 実クライアントの初期化 (非同期) を待ってから補完を要求する
+		-- (マッピングの中なら insert のまま待てる)
+		vim.keymap.set("i", "<C-t>", function()
+			t.assert_true(vim.wait(2000, function()
+				local client = vim.lsp.get_clients({ name = "skkelua", bufnr = 0 })[1]
+				return client ~= nil and client.initialized
+			end))
+			vim.lsp.completion.get()
+			t.assert_true(vim.wait(2000, function()
+				return vim.fn.pumvisible() == 1
+			end))
+		end, { buffer = true })
+		-- 初期の選択状態に依らず label の項目へ移動する
+		vim.keymap.set("i", "<C-s>", function()
+			local info = vim.fn.complete_info({ "items", "selected" })
+			local want
+			for i, item in ipairs(info.items) do
+				if (item.abbr ~= "" and item.abbr or item.word) == label then
+					want = i - 1
+				end
+			end
+			t.assert_true(want ~= nil, label .. " is not in the menu")
+			local delta = want - info.selected
+			local move = delta > 0 and ("<C-n>"):rep(delta) or ("<C-p>"):rep(-delta)
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(move, true, true, true), "ni", false)
+		end, { buffer = true })
+		feed("iJKanji<C-t><C-s>" .. keys)
+		-- 遅れて届く重複実行も拾う
+		vim.wait(150, function()
+			return false
+		end)
+	end)
+	skkelua.complete_callback, skkelua.handle = complete_callback, handle
+	if not ok then
+		error(err, 0)
+	end
+	return calls
+end
+
+t.test("confirming a builtin menu item learns it exactly once", function()
+	local calls = with_real_menu("漢字", "<C-y>")
+	t.assert_equals({ { "かんじ", "漢字", "okurinasi" } }, calls.learned)
+	t.assert_equals({}, calls.handled)
+end)
+
+t.test("closing the builtin menu without confirming learns nothing", function()
+	for _, keys in ipairs({ "<C-e>", "<C-e><Esc>" }) do
+		local calls = with_real_menu("漢字", keys)
+		t.assert_equals({}, calls.learned, keys)
+		t.assert_equals({}, calls.handled, keys)
+	end
+end)
+
+t.test("confirming [辞書登録] in the builtin menu opens the prompt once through its command", function()
+	local calls = with_real_menu("[辞書登録]", "<C-y>")
+	t.assert_equals({}, calls.learned)
+	t.assert_equals({ "registerWord" }, calls.handled)
+end)
