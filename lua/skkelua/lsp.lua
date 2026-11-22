@@ -8,6 +8,8 @@
 local M = {}
 
 local CLIENT_NAME = "skkelua"
+-- builtin・外部 UI 向けのどちらのクライアントもこの名前で起動する
+M.CLIENT_NAME = CLIENT_NAME
 
 local list_of = require("skkelua.lsp.list")
 
@@ -68,143 +70,6 @@ local function trigger_characters()
 	return chars
 end
 
---- builtin の pum で選択中の自前候補の word がカーソル前に挿入されていればそれを返す。
---- insertOnSelect の選択挿入はバッファ上の pre-edit を候補 word で
---- 置き換えるため、その間に届いた再リクエストは pre-edit を見つけられない
----@param before_cursor string
----@return string? word
----@return table? data 候補の data (skkelua/midasi/word/type)
-local function native_selected_word(before_cursor)
-	if vim.fn.pumvisible() == 0 then
-		return nil
-	end
-	local info = vim.fn.complete_info({ "selected", "items" })
-	local sel = (info.selected or -1) >= 0 and info.items[info.selected + 1] or nil
-	local word = sel and sel.word
-	if not word or word == "" or not vim.endswith(before_cursor, word) then
-		return nil
-	end
-	local item = vim.tbl_get(sel, "user_data", "nvim", "lsp", "completion_item")
-	if not (item and vim.tbl_get(item, "data", "skkelua")) then
-		return nil
-	end
-	return word, item.data
-end
-
---------------------------------------------------------------------
--- 補完 UI による候補の挿入の検出
---------------------------------------------------------------------
-
--- 直近に返した候補 (どのクライアントへの応答かは問わない)。
--- 補完 UI が選択した候補を pre-edit の位置へ挿入したことを、UI に
--- 問い合わせずバッファの内容だけから判定するのに使う
----@type {bufnr: integer, row: integer, prefix: string, pre_edit: string, candidates: table<string, table>}?
-local last_list
-
---- 応答した CompletionList を覚える。候補が無い応答は忘れる
----@param bufnr integer
----@param context {line: string, row: integer, col: integer}
----@param list table CompletionList
-local function remember(bufnr, context, list)
-	local candidates = {}
-	for _, item in ipairs(list.items) do
-		local data = item.data
-		-- [辞書登録] の挿入テキストは pre-edit そのものなので、挿入されても区別できない
-		if data and data.skkelua and not data.register and data.text then
-			candidates[data.text] = data
-		end
-	end
-	local range = vim.tbl_get(list.items, 1, "textEdit", "range")
-	if not range or next(candidates) == nil then
-		last_list = nil
-		return
-	end
-	-- 置換範囲は pre-edit そのもの (lsp/list.lua の build 参照)
-	local start = range.start.character
-	last_list = {
-		bufnr = bufnr,
-		row = context.row,
-		prefix = context.line:sub(1, start),
-		pre_edit = context.line:sub(start + 1, context.col),
-		candidates = candidates,
-	}
-end
-
---- 補完 UI が pre-edit を置き換えて挿入している skkelua の候補を返す。
---- skkelua がバッファに描いたつもりの pre-edit (shown) が直近の応答時の
---- pre-edit と同じで、その位置に応答した候補の文字列が入っていれば、
---- UI が候補を挿入したと判断する
----@param before_cursor string カーソル前のテキスト
----@param shown string skkelua が描いた pre-edit
----@return string? word
----@return table? data 候補の data
-function M.inserted_candidate(before_cursor, shown)
-	local last = last_list
-	if not last or shown == "" or shown ~= last.pre_edit then
-		return nil
-	end
-	local pos = vim.api.nvim_win_get_cursor(0)
-	if vim.api.nvim_get_current_buf() ~= last.bufnr or pos[1] - 1 ~= last.row then
-		return nil
-	end
-	if before_cursor:sub(1, #last.prefix) ~= last.prefix then
-		return nil
-	end
-	local word = before_cursor:sub(#last.prefix + 1)
-	local data = word ~= last.pre_edit and last.candidates[word] or nil
-	if data then
-		return word, data
-	end
-end
-
---- 挿入されている候補を、応答時の pre-edit に戻す。
---- 候補の確定キー列 (init.lua の finalize_completion) が、pre-edit を消して
---- 候補を入れ直す前に呼ぶ。マクロの再生などで候補が挿入されていなければ何もしない
-function M.revert_inserted()
-	local last = last_list
-	if not last or vim.api.nvim_get_current_buf() ~= last.bufnr then
-		return
-	end
-	local pos = vim.api.nvim_win_get_cursor(0)
-	if pos[1] - 1 ~= last.row then
-		return
-	end
-	local line = vim.api.nvim_get_current_line()
-	local word = line:sub(#last.prefix + 1, pos[2])
-	if line:sub(1, #last.prefix) ~= last.prefix or word == last.pre_edit or not last.candidates[word] then
-		return
-	end
-	vim.api.nvim_buf_set_text(0, last.row, #last.prefix, last.row, pos[2], { last.pre_edit })
-	vim.api.nvim_win_set_cursor(0, { pos[1], #last.prefix + #last.pre_edit })
-	last_list = nil
-end
-
--- キー処理中に、補完 UI が挿入していると判定された候補
----@type {word: string, data: table}?
-local key_selection
-
---- キー処理の開始時に、補完 UI が挿入している候補を受け取る
---- (init.lua の handle_request から呼ばれる)
----@param selection? {word: string, data: table}
-function M.set_key_selection(selection)
-	key_selection = selection
-end
-
---- 補完メニューで選択中の自前候補の word が現在のカーソル前に挿入されていれば返す
---- (deletePreEdit の削除対象判定や、選択挿入中の接尾辞開始に使う)
----@return string? word
----@return table? data
-function M.selected_word()
-	if vim.fn.pumvisible() == 1 then
-		local pos = vim.api.nvim_win_get_cursor(0)
-		local line = (vim.api.nvim_buf_get_lines(0, pos[1] - 1, pos[1], false) or {})[1] or ""
-		return native_selected_word(line:sub(1, pos[2]))
-	end
-	if key_selection then
-		return key_selection.word, key_selection.data
-	end
-end
-
 --- 補完候補を組み立てる。
 --- nil を返した場合は応答自体を保留する (complete() を走らせない)
 ---@return table? CompletionList
@@ -225,15 +90,13 @@ local function make_completion_list()
 		-- 同じ候補を返し直しても complete() の再実行で typed text が候補 word に
 		-- すり替わり <C-p>/<C-e> で pre-edit に戻れなくなる。
 		-- 応答を保留して、表示中の pum と選択状態をそのまま保つ
-		if native_selected_word(line:sub(1, col)) then
+		if require("skkelua.completion_ui").native_selected_word(line:sub(1, col)) then
 			return nil
 		end
 		return list
 	elseif reason then
-		remember(vim.api.nvim_get_current_buf(), { line = line, row = row, col = col }, list)
 		return list
 	end
-	remember(vim.api.nvim_get_current_buf(), { line = line, row = row, col = col }, list)
 
 	local instant_insert = completion_config().insertOnSelect
 	local pre_edit = require("skkelua").get_pre_edit()
@@ -287,8 +150,6 @@ local function execute_command(params)
 	if not (data and data.skkelua) then
 		return
 	end
-	-- クライアントが確定した候補は、以降のキーで確定し直さない
-	last_list = nil
 	if data.register then
 		-- [辞書登録] 項目: 登録プロンプトを開く。サーバーはリクエストを
 		-- vim.schedule で処理するので、補完の終了処理は既に抜けている。
@@ -514,7 +375,6 @@ end
 --- この関数が担う範囲 (バッファ名 = URI) に限る
 ---@param params table textDocument/completion の params。character は UTF-8 のバイトオフセット
 ---@return {line: string, row: integer, col: integer}?
----@return integer? bufnr
 local function request_context(params)
 	local uri = vim.tbl_get(params, "textDocument", "uri")
 	local row = vim.tbl_get(params, "position", "line")
@@ -543,7 +403,7 @@ local function request_context(params)
 	end
 	local line = bufnr and vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
 	if line then
-		return { line = line, row = row, col = col }, bufnr
+		return { line = line, row = row, col = col }
 	end
 end
 
@@ -564,15 +424,8 @@ function M.start(bufnr)
 	return vim.lsp.start({
 		name = CLIENT_NAME,
 		cmd = new_server(function(params)
-			local context, buf = request_context(params)
-			if not context then
-				return { isIncomplete = true, items = {} }
-			end
-			local list, reason = list_of.build(context)
-			if reason ~= "stale" then
-				remember(buf, context, list)
-			end
-			return list
+			local context = request_context(params)
+			return context and list_of.build(context) or { isIncomplete = true, items = {} }
 		end),
 		skkelua_external_completion = true,
 	}, {
@@ -601,12 +454,5 @@ end
 
 -- テスト用: 処理した completion リクエストの記録
 M._requests = {}
-
---- テスト用: 覚えている応答とキー処理中の選択を忘れる
-function M._reset_for_test()
-	last_list = nil
-	key_selection = nil
-	M._requests = {}
-end
 
 return M
