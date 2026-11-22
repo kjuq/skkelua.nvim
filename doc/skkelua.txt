@@ -281,7 +281,11 @@ in-process の LSP サーバー (|vim.lsp.start()| の cmd 関数) として実�
 	})
 <
 オプション:
-- enabled (false): 補完機能そのものの有効・無効
+- enabled (false): 組み込みの補完メニューを使うかどうか。true にすると
+  skkelua が insert モードで |skkelua.lsp.start()| のクライアントを attach し、
+  そのクライアントで組み込みの補完を有効にします。応答も組み込みの補完
+  向けに整形されるため、他の補完 UI (|skkelua-completion-extension|) を
+  使う場合は false のままにしてください
 - insertOnSelect (false): 候補の選択 (CTRL-N/CTRL-P でのフォーカス) と
   同時に pre-edit を候補で置き換えます。選択を外す・CTRL-E で中止すると
   元の pre-edit に戻ります。有効化中は buffer-local の 'completeopt' から
@@ -300,7 +304,9 @@ in-process の LSP サーバー (|vim.lsp.start()| の cmd 関数) として実�
 pureSpace (|skkelua-options|) も合わせて有効にすると快適です。
 
 動作:
-- skkelua の有効化時にカレントバッファへ attach し、無効化で外れます
+- insert モードに入るとカレントバッファへ LSP クライアントを attach します。
+  補完メニューの自動表示は skkelua が有効な間だけ働きます (クライアントは
+  無効化後も残ります)
 - 有効化中は buffer-local の 'completeopt' に menuone が足され、候補が
   1 つだけでも補完メニューが開きます (無効化時に復元)
 - ▽ に続くかなの入力 (ひらがながトリガー文字) で自動的に補完が要求され、
@@ -371,14 +377,17 @@ UI 側は通常の LSP クライアントとして接続します。UI ごとの
 require("skkelua.lsp").start({bufnr}?)                   *skkelua.lsp.start()*
 	{bufnr} (省略時は現在のバッファ) を共有 LSP クライアントへ attach し、
 	client id を返します (起動できなければ nil)。クライアントはバッファ間で
-	共有され、SKK の有効・無効に関係なく残ります。組み込みの補完 UI は
-	有効化しません (|skkelua-completion| の completion.enabled とは
-	独立です)。
+	共有され、SKK の有効・無効に関係なく残ります。completion.enabled
+	(|skkelua-completion|) が true の場合は skkelua が insert モードで
+	これを呼び、組み込みの補完 UI を有効にします。
 	候補は補完要求の位置 (UTF-8 のバイトオフセット) と、読み込み済み
 	バッファ名 (= URI) から引きます。名前の無いバッファは全て同じ URI に
 	なるため、現在のバッファが要求元として扱われます。仮想ドキュメントを
 	使う場合は、バッファ名を要求の URI に合わせてください。
-	返す候補はスニペット化などの UI 固有の整形をしていません。
+	completion.enabled が false の場合、返す候補はスニペット化などの UI 固有の
+	整形をしていません。
+	登録プロンプトには、変換していたバッファに attach されていた
+	クライアントを skkelua が attach します。
 >lua
 	vim.api.nvim_create_autocmd("InsertEnter", {
 		callback = function()

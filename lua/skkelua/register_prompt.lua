@@ -98,6 +98,8 @@ function M.open(opts)
 		M._close()
 		top = nil
 	end
+	-- 変換していたバッファ (ネスト時は外側のプロンプト)
+	local origin = vim.api.nvim_get_current_buf()
 
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.bo[buf].buftype = "prompt"
@@ -156,8 +158,14 @@ function M.open(opts)
 		end,
 	})
 
-	-- skkelua を有効化する (skkelua-enable-post で LSP 補完もこの
-	-- バッファへ attach し、プロンプト内でも pum で変換できる)
+	-- 変換していたバッファに skkelua の LSP クライアントが attach されていれば、
+	-- プロンプトにも attach して同じ補完 UI で変換できるようにする。
+	-- プロンプトは insert モードのまま開くため、InsertEnter での attach は働かない
+	if require("skkelua.lsp").client(origin) then
+		require("skkelua.lsp").start(buf)
+	end
+	-- skkelua を有効化する (builtin の補完 UI は skkelua-enable-post で
+	-- 有効になる)
 	require("skkelua").handle("enable", {})
 
 	-- <Esc> はプロンプトのキャンセル (skkelua の escape 機能より優先

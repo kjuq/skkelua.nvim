@@ -1,4 +1,4 @@
--- 外部の補完 UI 向け共有クライアント (lsp.start) のテスト
+-- skkelua の LSP クライアント (lsp.start) のテスト
 
 local t = require("tests.helper")
 
@@ -148,46 +148,84 @@ t.test("start returns nothing for unknown documents and stale positions", functi
 	cleanup(client)
 end)
 
---- buf に attach されている builtin 用のクライアント
-local function builtin_client(buf)
-	for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf, name = "skkelua" })) do
-		if client.config.skkelua_builtin_completion then
-			return client
-		end
+--- vim.lsp.completion.enable の呼び出しを記録する。戻り値の関数で元に戻す
+---@return {enable: boolean, client_id: integer, bufnr: integer, autotrigger: boolean?}[] calls
+---@return fun() restore
+local function spy_completion_enable()
+	local calls = {}
+	local orig = vim.lsp.completion.enable
+	vim.lsp.completion.enable = function(enable, client_id, bufnr, opts)
+		calls[#calls + 1] = {
+			enable = enable,
+			client_id = client_id,
+			bufnr = bufnr,
+			autotrigger = opts and opts.autotrigger,
+		}
+		return orig(enable, client_id, bufnr, opts)
+	end
+	return calls, function()
+		vim.lsp.completion.enable = orig
 	end
 end
 
-t.test("start keeps its client apart from the builtin one in either order", function()
-	local buf = setup_henkan_buffer("d")
+--- 最後の vim.lsp.completion.enable の呼び出し
+local function last(calls)
+	return calls[#calls] or {}
+end
+
+t.test("builtin completion attaches start's client on InsertEnter and follows SKK", function()
 	require("skkelua").config({ completion = { enabled = true } })
-	-- 停止済み (終了通知待ち) のクライアントは数えない
-	t.assert_equals(0, #vim.tbl_filter(function(client)
-		return not client:is_stopped()
-	end, vim.lsp.get_clients({ name = "skkelua" })))
+	local calls, restore = spy_completion_enable()
+	local ok, err = pcall(function()
+		local buf = setup_henkan_buffer("d")
+		vim.api.nvim_exec_autocmds("InsertEnter", { buffer = buf, modeline = false })
+		local client = assert(require("skkelua.lsp").client(buf))
+		t.assert_true(vim.wait(1000, function()
+			return client.initialized and last(calls).enable == true
+		end))
+		-- 外部 UI と同じ 1 つのクライアントで、builtin の補完 UI が動く
+		t.assert_equals(1, #vim.lsp.get_clients({ bufnr = buf, name = "skkelua" }))
+		t.assert_equals(client.id, require("skkelua.lsp").start(buf))
+		t.assert_equals({ enable = true, client_id = client.id, bufnr = buf, autotrigger = true }, last(calls))
 
-	-- external -> builtin
-	local external = started_client(buf)
-	require("skkelua.lsp").attach()
-	t.assert_true(vim.wait(1000, function()
-		return builtin_client(buf) ~= nil
-	end))
-	local builtin = assert(builtin_client(buf))
-	t.assert_true(external.id ~= builtin.id)
-	t.assert_equals(nil, external.config.skkelua_builtin_completion)
-	t.assert_equals(external.id, require("skkelua.lsp").start(buf))
-	cleanup(external, builtin)
+		-- 応答は builtin 向けに整形される
+		vim.api.nvim_win_set_cursor(0, { 1, #"▽かんじ" })
+		local list = request_completion(client, buf, #"▽かんじ")
+		t.assert_equals(vim.lsp.protocol.InsertTextFormat.Snippet, list.items[1].insertTextFormat)
 
-	-- builtin -> external
-	buf = setup_henkan_buffer("d2")
-	require("skkelua.lsp").attach()
-	t.assert_true(vim.wait(1000, function()
-		return builtin_client(buf) ~= nil
-	end))
-	builtin = assert(builtin_client(buf))
-	external = started_client(buf)
-	t.assert_true(external.id ~= builtin.id)
-	t.assert_equals(true, external.config.skkelua_external_completion)
-	cleanup(external, builtin)
+		-- 補完 UI は SKK の有効・無効に連動し、クライアントは残る
+		require("skkelua")._handle_request("disable", {}, vim_status)
+		t.assert_equals({ enable = false, client_id = client.id, bufnr = buf }, last(calls))
+		t.assert_true(vim.lsp.buf_is_attached(buf, client.id))
+		require("skkelua")._handle_request("enable", {}, vim_status)
+		t.assert_equals(true, last(calls).enable)
+		cleanup(client)
+	end)
+	restore()
+	if not ok then
+		error(err, 0)
+	end
+end)
+
+t.test("without builtin completion, InsertEnter and SKK toggles leave the buffer alone", function()
+	local calls, restore = spy_completion_enable()
+	local ok, err = pcall(function()
+		local buf = setup_henkan_buffer("e")
+		vim.api.nvim_exec_autocmds("InsertEnter", { buffer = buf, modeline = false })
+		t.assert_equals(nil, require("skkelua.lsp").client(buf))
+
+		local client = started_client(buf)
+		vim.bo[buf].completeopt = "menu"
+		require("skkelua")._handle_request("disable", {}, vim_status)
+		require("skkelua")._handle_request("enable", {}, vim_status)
+		t.assert_equals(0, #calls)
+		t.assert_equals("menu", vim.bo[buf].completeopt)
+		cleanup(client)
+	end)
+	restore()
+	if not ok then
+		error(err, 0)
+	end
 end)
 
 t.test("start uses the current buffer by default and restarts after the client stops", function()

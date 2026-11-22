@@ -236,138 +236,7 @@ local function new_server(complete)
 end
 
 --------------------------------------------------------------------
--- attach / detach
---------------------------------------------------------------------
-
---- buffer-local 'completeopt' をグローバル値に戻す
----@param buf integer
-local function restore_completeopt(buf)
-	if vim.api.nvim_buf_is_valid(buf) then
-		vim.api.nvim_buf_call(buf, function()
-			vim.cmd("setlocal completeopt<")
-		end)
-	end
-end
-
---- ASCII 混じり pre-edit ではフィルタを通すため label に pre-edit を
---- 前置している。pum の表示 (abbr) は候補そのものへ戻す。
---- また detail (見出し) はクライアントが info に写し、'completeopt' の
---- popup で候補選択のたびにフロートとして出てしまうため、常に空へ戻す
----@param item table lsp.CompletionItem
----@return table
-local function convert_item(item)
-	local display = vim.tbl_get(item, "data", "display")
-	return { info = "", abbr = display }
-end
-
----@param client_id integer
----@param buf integer
-local function enable_completion(client_id, buf)
-	-- Note: builtin の completion.enable は「最初に buf_handle を作った呼び出しの
-	--       opts」でバッファの補完動作が固定される。有効化・無効化サイクルを
-	--       冪等にするため、一度無効化してから autotrigger 付きで登録し直す
-	--       (それでも他の設定が同一バッファへ opts 無しで enable(true) を呼ぶと
-	--       autotrigger は失われる。doc の注意書きを参照)
-	vim.lsp.completion.enable(false, client_id, buf)
-	vim.lsp.completion.enable(true, client_id, buf, { autotrigger = true, convert = convert_item })
-	set_completeopt(buf, false)
-end
-
---- 現在のバッファで補完を有効にする (skkelua-enable-post から呼ばれる)
-function M.attach()
-	if not completion_config().enabled then
-		return
-	end
-	local buf = vim.api.nvim_get_current_buf()
-	local client_id = vim.lsp.start({
-		name = CLIENT_NAME,
-		cmd = new_server(make_completion_list),
-		skkelua_builtin_completion = true,
-	}, {
-		bufnr = buf,
-		-- 外部 UI 向けの共有クライアント (start) を組み込みの補完に流用しない
-		reuse_client = function(client)
-			return client.config.skkelua_builtin_completion == true and not client:is_stopped()
-		end,
-	})
-	if not client_id then
-		return
-	end
-	-- Note: triggerCharacters は completion.enable 時に server_capabilities から
-	--       読まれるため、initialize 完了前に呼ぶと autotrigger が働かない。
-	--       未初期化の場合は LspAttach (setup_autocmds で登録) に任せる
-	local client = vim.lsp.get_client_by_id(client_id)
-	if client and client.initialized then
-		enable_completion(client_id, buf)
-	end
-end
-
----@param buf integer
----@return vim.lsp.Client?
-local function builtin_client(buf)
-	for _, client in ipairs(vim.lsp.get_clients({ name = CLIENT_NAME, bufnr = buf })) do
-		if client.config.skkelua_builtin_completion then
-			return client
-		end
-	end
-end
-
---- 現在のバッファで builtin の補完を明示的にトリガーする。
---- autotrigger はトリガー文字のタイプでしか働かないため、辞書登録の
---- キャンセルなどタイプを伴わずに pre-edit が復元された時に呼ぶ。
---- 他の補完 UI はバッファの変更 (TextChangedI) で再要求する
-function M.trigger()
-	if not completion_config().enabled or vim.fn.mode() ~= "i" then
-		return
-	end
-	local buf = vim.api.nvim_get_current_buf()
-	if not builtin_client(buf) then
-		return
-	end
-	vim.lsp.completion.get()
-end
-
---- 現在のバッファで補完を無効にする (skkelua-disable-post から呼ばれる)
-function M.detach()
-	local buf = vim.api.nvim_get_current_buf()
-	local client = builtin_client(buf)
-	if client then
-		vim.lsp.completion.enable(false, client.id, buf)
-	end
-	restore_completeopt(buf)
-end
-
---- 有効化・無効化に連動する autocmd を登録する (plugin/skkelua.lua から呼ばれる)
-function M.setup_autocmds()
-	local group = vim.api.nvim_create_augroup("skkelua-lsp", { clear = true })
-	vim.api.nvim_create_autocmd("User", {
-		group = group,
-		pattern = "skkelua-enable-post",
-		callback = function()
-			M.attach()
-		end,
-	})
-	vim.api.nvim_create_autocmd("User", {
-		group = group,
-		pattern = "skkelua-disable-post",
-		callback = function()
-			M.detach()
-		end,
-	})
-	-- initialize 完了後の attach を拾って autotrigger を有効化する
-	vim.api.nvim_create_autocmd("LspAttach", {
-		group = group,
-		callback = function(ev)
-			local client = vim.lsp.get_client_by_id(ev.data.client_id)
-			if client and client.config.skkelua_builtin_completion then
-				enable_completion(ev.data.client_id, ev.buf)
-			end
-		end,
-	})
-end
-
---------------------------------------------------------------------
--- 外部の補完 UI 向け
+-- クライアント
 --------------------------------------------------------------------
 
 --- 補完要求の位置から、読み込み済みバッファ上の入力行を引く。
@@ -407,31 +276,178 @@ local function request_context(params)
 	end
 end
 
---- 外部の補完 UI が使う LSP クライアントを、バッファに一度だけ attach する。
---- クライアントはバッファ間で共有され、SKK の有効・無効に関係なく残る。
---- 組み込みの補完 UI は有効化しない。候補は UI 非依存の形のまま返す
+--- textDocument/completion の応答を組み立てる。
+--- builtin の補完 UI を使う設定 (completion.enabled) では builtin 向けに
+--- 整形した候補を、それ以外では UI 非依存の形のままの候補を返す
+---@param params table textDocument/completion の params
+---@return table? CompletionList。nil は応答保留 (選択挿入中のバースト)
+local function complete_request(params)
+	if completion_config().enabled then
+		return make_completion_list()
+	end
+	local context = request_context(params)
+	return context and list_of.build(context) or { isIncomplete = true, items = {} }
+end
+
+--- バッファに attach されている skkelua のクライアントを返す
+---@param bufnr integer
+---@return vim.lsp.Client?
+function M.client(bufnr)
+	for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, _uninitialized = true })) do
+		if client.config.skkelua_client and not client:is_stopped() then
+			return client
+		end
+	end
+end
+
+--- skkelua の LSP クライアントを、バッファに一度だけ attach する。
+--- 補完 UI は builtin も外部のものも、このクライアントを使う。
+--- クライアントはバッファ間で共有され、SKK の有効・無効に関係なく残る
 ---@param bufnr? integer 省略時は現在のバッファ
 ---@return integer? client_id
 function M.start(bufnr)
 	if bufnr == nil or bufnr == 0 then
 		bufnr = vim.api.nvim_get_current_buf()
 	end
-	for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, _uninitialized = true })) do
-		if client.config.skkelua_external_completion and not client:is_stopped() then
-			return client.id
-		end
+	local attached = M.client(bufnr)
+	if attached then
+		return attached.id
 	end
 	return vim.lsp.start({
 		name = CLIENT_NAME,
-		cmd = new_server(function(params)
-			local context = request_context(params)
-			return context and list_of.build(context) or { isIncomplete = true, items = {} }
-		end),
-		skkelua_external_completion = true,
+		cmd = new_server(complete_request),
+		skkelua_client = true,
 	}, {
 		bufnr = bufnr,
 		reuse_client = function(client)
-			return client.config.skkelua_external_completion == true and not client:is_stopped()
+			return client.config.skkelua_client == true and not client:is_stopped()
+		end,
+	})
+end
+
+--------------------------------------------------------------------
+-- builtin の補完 UI (completion.enabled)
+--------------------------------------------------------------------
+-- 外部の補完 UI と同じく start() のクライアントを使う。利用者が設定に
+-- 書く処理 (insert モードに入ったときの start() と、補完 UI の有効化) を
+-- skkelua が代わりに行う
+
+--- buffer-local 'completeopt' をグローバル値に戻す
+---@param buf integer
+local function restore_completeopt(buf)
+	if vim.api.nvim_buf_is_valid(buf) then
+		vim.api.nvim_buf_call(buf, function()
+			vim.cmd("setlocal completeopt<")
+		end)
+	end
+end
+
+--- ASCII 混じり pre-edit ではフィルタを通すため label に pre-edit を
+--- 前置している。pum の表示 (abbr) は候補そのものへ戻す。
+--- また detail (見出し) はクライアントが info に写し、'completeopt' の
+--- popup で候補選択のたびにフロートとして出てしまうため、常に空へ戻す
+---@param item table lsp.CompletionItem
+---@return table
+local function convert_item(item)
+	local display = vim.tbl_get(item, "data", "display")
+	return { info = "", abbr = display }
+end
+
+---@param client_id integer
+---@param buf integer
+local function enable_completion(client_id, buf)
+	-- Note: builtin の completion.enable は「最初に buf_handle を作った呼び出しの
+	--       opts」でバッファの補完動作が固定される。有効化・無効化サイクルを
+	--       冪等にするため、一度無効化してから autotrigger 付きで登録し直す
+	--       (それでも他の設定が同一バッファへ opts 無しで enable(true) を呼ぶと
+	--       autotrigger は失われる。doc の注意書きを参照)
+	vim.lsp.completion.enable(false, client_id, buf)
+	vim.lsp.completion.enable(true, client_id, buf, { autotrigger = true, convert = convert_item })
+	set_completeopt(buf, false)
+end
+
+--- 現在のバッファの skkelua クライアントで builtin の補完 UI を有効にする。
+--- 補完 UI は skkelua が有効な間だけ動かす (triggerCharacters に a-z を
+--- 含むため、無効な間も動かすと英字を打つたびに要求が飛び、他のサーバーの
+--- 保留中の要求をキャンセルしてしまう)
+local function enable_builtin()
+	local buf = vim.api.nvim_get_current_buf()
+	local client = M.client(buf)
+	-- Note: triggerCharacters は completion.enable 時に server_capabilities から
+	--       読まれるため、initialize 完了前に呼ぶと autotrigger が働かない。
+	--       未初期化の場合は LspAttach (setup_autocmds で登録) に任せる
+	if client and client.initialized then
+		enable_completion(client.id, buf)
+	end
+end
+
+--- 現在のバッファで builtin の補完 UI を無効にする
+local function disable_builtin()
+	local buf = vim.api.nvim_get_current_buf()
+	local client = M.client(buf)
+	if client then
+		vim.lsp.completion.enable(false, client.id, buf)
+	end
+	restore_completeopt(buf)
+end
+
+--- 現在のバッファで builtin の補完を明示的にトリガーする。
+--- autotrigger はトリガー文字のタイプでしか働かないため、辞書登録の
+--- キャンセルなどタイプを伴わずに pre-edit が復元された時に呼ぶ。
+--- 他の補完 UI はバッファの変更 (TextChangedI) で再要求する
+function M.trigger()
+	if not completion_config().enabled or vim.fn.mode() ~= "i" then
+		return
+	end
+	if not M.client(vim.api.nvim_get_current_buf()) then
+		return
+	end
+	vim.lsp.completion.get()
+end
+
+--- builtin の補完 UI を使う設定 (completion.enabled) で、insert モードへの
+--- 移行と skkelua の有効化・無効化に連動する autocmd を登録する
+--- (plugin/skkelua.lua から呼ばれる。設定は発火時に参照する)
+function M.setup_autocmds()
+	local group = vim.api.nvim_create_augroup("skkelua-lsp", { clear = true })
+	vim.api.nvim_create_autocmd("InsertEnter", {
+		group = group,
+		callback = function()
+			if completion_config().enabled then
+				M.start()
+			end
+		end,
+	})
+	vim.api.nvim_create_autocmd("User", {
+		group = group,
+		pattern = "skkelua-enable-post",
+		callback = function()
+			if completion_config().enabled then
+				enable_builtin()
+			end
+		end,
+	})
+	vim.api.nvim_create_autocmd("User", {
+		group = group,
+		pattern = "skkelua-disable-post",
+		callback = function()
+			if completion_config().enabled then
+				disable_builtin()
+			end
+		end,
+	})
+	-- initialize 完了前に skkelua が有効化されていた場合は、attach の
+	-- 完了時に補完 UI を有効にする
+	vim.api.nvim_create_autocmd("LspAttach", {
+		group = group,
+		callback = function(ev)
+			local client = vim.lsp.get_client_by_id(ev.data.client_id)
+			if not (client and client.config.skkelua_client and completion_config().enabled) then
+				return
+			end
+			if require("skkelua").is_enabled() and ev.buf == vim.api.nvim_get_current_buf() then
+				enable_completion(client.id, ev.buf)
+			end
 		end,
 	})
 end
