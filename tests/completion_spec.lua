@@ -1,253 +1,161 @@
--- 外部の補完 UI アダプター (completion.set_adapter) のテスト
+-- 補完 UI が挿入した候補の扱いのテスト
+--
+-- skkelua は補完 UI に問い合わせず、共有クライアント (lsp.start) へ返した
+-- 候補が pre-edit の位置に挿入されているかをバッファから判定する
 
 local t = require("tests.helper")
 
-local vim_status = { mode = "", prevInput = "", completeInfo = {}, completeType = "" }
-
---- 現在の補完 UI の状態を渡して handleKey を呼ぶ
----@param key string
-local function handle_key(key)
-	local skkelua = require("skkelua")
-	local status = skkelua.vim_status()
-	return skkelua._handle_request("handleKey", { key = { key } }, {
-		mode = "",
-		prevInput = require("skkelua.store").get_context():to_string(),
-		completeInfo = status.completeInfo,
-		completeType = status.completeType,
-	})
+local function tc(s)
+	return vim.api.nvim_replace_termcodes(s, true, true, true)
 end
 
---- ▽かんじ の変換入力状態を作る
-local function setup_henkan_input()
-	require("skkelua")._handle_request("enable", {}, vim_status)
-	for _, k in ipairs({ "K", "a", "n", "j", "i" }) do
-		handle_key(k)
+local function feed(keys)
+	vim.fn.feedkeys(tc(keys), "tx")
+end
+
+--- 補完 UI を模したマッピングを張る (laser.nvim と同じ操作をする)。
+--- <C-t>: 共有クライアントに補完を要求する
+--- <C-n>: 次の項目を、noremap の <BS> と項目の文字列を feedkeys して挿入する
+--- <F2>: 選択中の項目を確定する (項目の command をクライアントが実行する)
+--- <F3>: 選択をやめて、要求時の入力に戻す
+---@param client vim.lsp.Client
+local function map_fake_ui(client)
+	local items, index, typed = {}, 0, ""
+	local function replace_with(text)
+		local current = index > 0 and items[index].textEdit.newText or typed
+		vim.api.nvim_feedkeys(tc(("<BS>"):rep(vim.fn.strcharlen(current)) .. text), "in", false)
 	end
-	t.assert_equals("▽かんじ", require("skkelua").get_pre_edit())
+	vim.keymap.set("i", "<C-t>", function()
+		local pos = vim.api.nvim_win_get_cursor(0)
+		local result
+		client:request("textDocument/completion", {
+			textDocument = { uri = vim.uri_from_bufnr(0) },
+			position = { line = pos[1] - 1, character = pos[2] },
+		}, function(_, res)
+			result = res or { items = {} }
+		end, 0)
+		t.assert_true(vim.wait(1000, function()
+			return result ~= nil
+		end))
+		items, index = result.items, 0
+		local range = vim.tbl_get(items, 1, "textEdit", "range")
+		typed = range and vim.api.nvim_get_current_line():sub(range.start.character + 1, pos[2]) or ""
+	end, { buffer = true })
+	vim.keymap.set("i", "<C-n>", function()
+		if index < #items then
+			replace_with(items[index + 1].textEdit.newText)
+			index = index + 1
+		end
+	end, { buffer = true })
+	vim.keymap.set("i", "<F2>", function()
+		local item = items[index]
+		items, index = {}, 0
+		if item then
+			local done = false
+			client:exec_cmd(item.command, { bufnr = 0 }, function()
+				done = true
+			end)
+			t.assert_true(vim.wait(1000, function()
+				return done
+			end))
+		end
+	end, { buffer = true })
+	vim.keymap.set("i", "<F3>", function()
+		if index > 0 then
+			replace_with(typed)
+		end
+		items, index = {}, 0
+	end, { buffer = true })
 end
 
---- 選択中の候補だけを返すアダプター
----@param item table CompletionItem
-local function adapter_selecting(item)
-	return {
-		selected = function()
-			return item
-		end,
-		confirm = function()
-			return "external-confirm"
-		end,
-	}
+--- 補完 UI を模したマッピングを張ったバッファで fn を実行する。
+--- skkelua.complete_callback (辞書学習) の呼び出しを記録して返す
+---@param fn fun()
+---@return table[] learned
+local function with_fake_ui(fn)
+	require("skkelua.store").get_library():register_henkan_result("okurinasi", "かんじ", "漢字")
+	local skkelua = require("skkelua")
+	local learned = {}
+	local complete_callback = skkelua.complete_callback
+	skkelua.complete_callback = function(...)
+		learned[#learned + 1] = { ... }
+		return complete_callback(...)
+	end
+	vim.cmd.enew({ bang = true })
+	vim.cmd("inoremap <buffer> J <Cmd>lua require('skkelua').handle('enable', {})<CR>")
+	vim.fn.setreg("q", "")
+	local ok, err = pcall(function()
+		local client = assert(vim.lsp.get_client_by_id(require("skkelua.lsp").start()))
+		t.assert_true(vim.wait(1000, function()
+			return client.initialized
+		end))
+		map_fake_ui(client)
+		fn()
+	end)
+	skkelua.complete_callback = complete_callback
+	vim.cmd("stopinsert")
+	vim.cmd.bwipeout({ bang = true })
+	if not ok then
+		error(err, 0)
+	end
+	return learned
 end
 
-t.test("<C-y> delegates confirmation to the adapter", function()
-	setup_henkan_input()
-	require("skkelua.completion").set_adapter(adapter_selecting({ data = { skkelua = true } }))
-	local ret = handle_key("<c-y>")
-	t.assert_equals("external-confirm", ret.result)
-	t.assert_equals("", require("skkelua").get_pre_edit())
+t.test("<C-y> commits the candidate a completion UI inserted", function()
+	local learned = with_fake_ui(function()
+		feed("iJKanji<C-t><C-n><C-y>")
+		t.assert_equals({ "漢字" }, vim.fn.getline(1, "$"))
+		t.assert_equals("input", require("skkelua.store").status.phase)
+	end)
+	t.assert_equals({ { "かんじ", "漢字", "okurinasi" } }, learned)
 end)
 
-t.test("<C-y> on a selected [辞書登録] item keeps the pre-edit", function()
-	setup_henkan_input()
-	require("skkelua.completion").set_adapter(adapter_selecting({ data = { skkelua = true, register = true } }))
-	local ret = handle_key("<c-y>")
-	t.assert_equals("external-confirm", ret.result)
-	t.assert_equals("▽かんじ", require("skkelua").get_pre_edit())
+t.test("typing after a completion UI inserted a candidate commits it first", function()
+	local learned = with_fake_ui(function()
+		feed("iJKanji<C-t><C-n>a")
+		t.assert_equals({ "漢字あ" }, vim.fn.getline(1, "$"))
+	end)
+	t.assert_equals({ { "かんじ", "漢字", "okurinasi" } }, learned)
 end)
 
-t.test("<C-y> without a selection is not handed to the adapter", function()
-	setup_henkan_input()
-	require("skkelua.completion").set_adapter({
-		selected = function()
-			return nil
-		end,
-		confirm = function()
-			return "external-confirm"
-		end,
-	})
-	local ret = handle_key("<c-y>")
-	t.assert_true(ret.result ~= "external-confirm")
+t.test("<C-w> deletes the candidate a completion UI inserted", function()
+	local learned = with_fake_ui(function()
+		-- native の <C-w> なら、同じ挿入で入れた前の 漢 も同じ単語として消える
+		vim.cmd("inoremap <buffer> <F4> 漢")
+		feed("iJ<F4>Kanji<C-t><C-n><C-w>")
+		t.assert_equals({ "漢" }, vim.fn.getline(1, "$"))
+	end)
+	t.assert_equals({}, learned)
 end)
 
-t.test("an explicit adapter takes precedence over detected UIs", function()
-	local saved = package.loaded["cmp"]
-	package.loaded["cmp"] = {
-		visible = function()
-			return true
-		end,
-		get_active_entry = function()
-			return {}
-		end,
-	}
-	require("skkelua.completion").set_adapter(adapter_selecting({}))
-	local confirm = require("skkelua.completion").confirm()
-	package.loaded["cmp"] = saved
-	t.assert_equals("external-confirm", confirm)
+t.test("a candidate the completion UI confirmed is learned once", function()
+	local learned = with_fake_ui(function()
+		feed("iJKanji<C-t><C-n><F2>a")
+		t.assert_equals({ "漢字あ" }, vim.fn.getline(1, "$"))
+	end)
+	t.assert_equals({ { "かんじ", "漢字", "okurinasi" } }, learned)
 end)
 
-t.test("selected_word finds the selected candidate's text before the cursor", function()
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_set_current_buf(buf)
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "漢字 " })
-	-- Normal モードでもカーソル前が "漢字" になるよう、後ろに文字を置く
-	vim.api.nvim_win_set_cursor(0, { 1, #"漢字" })
-	local item = { data = { skkelua = true, word = "漢字", text = "漢字" } }
-	require("skkelua.completion").set_adapter({
-		selected = function()
-			return item
-		end,
-		confirm = function()
-			return ""
-		end,
-	})
-	local word, data = require("skkelua.lsp").selected_word()
-	vim.api.nvim_buf_delete(buf, { force = true })
-	t.assert_equals("漢字", word)
-	t.assert_equals(item.data, data)
+t.test("the pre-edit the completion UI restored is still converted", function()
+	local learned = with_fake_ui(function()
+		feed("iJKanji<C-t><C-n><F3><C-y>")
+		t.assert_equals({ "かんじ" }, vim.fn.getline(1, "$"))
+	end)
+	t.assert_equals({}, learned)
 end)
 
-t.test("selected_word ignores a selection that is not inserted yet", function()
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_set_current_buf(buf)
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "▽かんじ " })
-	vim.api.nvim_win_set_cursor(0, { 1, #"▽かんじ" })
-	require("skkelua.completion").set_adapter(adapter_selecting({ data = { skkelua = true, text = "漢字" } }))
-	local word = require("skkelua.lsp").selected_word()
-	vim.api.nvim_buf_delete(buf, { force = true })
-	t.assert_equals(nil, word)
+t.test("replaying a macro inserts the candidate without the completion UI", function()
+	with_fake_ui(function()
+		feed("qqiJKanji<C-t><C-n><C-y><CR><Esc>q")
+		t.assert_equals({ "漢字", "" }, vim.fn.getline(1, "$"))
+		feed("@q")
+		t.assert_equals({ "漢字", "漢字", "" }, vim.fn.getline(1, "$"))
+	end)
 end)
 
 t.test("items from other sources are not treated as skkelua candidates", function()
-	local completion = require("skkelua.completion")
-	t.assert_equals(nil, completion.item_data({ data = { other = true } }))
-	t.assert_equals(false, completion.is_register_item({ data = { skkelua = true } }))
-	t.assert_equals(true, completion.is_register_item({ data = { skkelua = true, register = true } }))
-end)
-
-t.test("an adapter that throws does not break key handling", function()
-	require("skkelua.store").get_library():register_henkan_result("okurinasi", "かんじ", "漢字")
-	setup_henkan_input()
-	require("skkelua.completion").set_adapter({
-		selected = function()
-			error("boom")
-		end,
-		confirm = function()
-			error("boom")
-		end,
-	})
-	local notify = vim.notify_once
-	vim.notify_once = function() end
-	local ok, err = pcall(function()
-		-- 状態が分からない間はメニュー無しとして扱い、skkelua 自身が処理する
-		t.assert_equals({ true, nil }, { require("skkelua.completion").selection() })
-		t.assert_equals(nil, require("skkelua.completion").confirm())
-		handle_key("<space>")
-	end)
-	vim.notify_once = notify
-	if not ok then
-		error(err, 0)
-	end
-	t.assert_equals("henkan", require("skkelua.store").get_context().state.type)
-end)
-
-t.test("adapter results are normalized", function()
-	local completion = require("skkelua.completion")
-	completion.set_adapter({
-		selected = function()
-			return "not an item"
-		end,
-		confirm = function()
-			return 1
-		end,
-	})
-	t.assert_equals({ true, nil }, { completion.selection() })
-	t.assert_equals(nil, completion.confirm())
-	-- data を持てない UI は空の CompletionItem で「選択中」だけ伝えられる
-	completion.set_adapter({
-		selected = function()
-			return {}
-		end,
-		confirm = function()
-			return ""
-		end,
-	})
-	t.assert_equals({ true, {} }, { completion.selection() })
-end)
-
---- pum.vim の関数を差し替えて fn を実行する
---- (autoload 関数は autoload/pum.vim にしか定義できないので一時ディレクトリに置く)
----@param info table pum#complete_info() の戻り値
----@param current table pum#current_item() の戻り値
----@param fn fun()
-local function with_pum(info, current, fn)
-	local dir = vim.fn.tempname()
-	vim.fn.mkdir(dir .. "/autoload", "p")
-	vim.fn.writefile({
-		"function! pum#visible() abort",
-		"  return v:true",
-		"endfunction",
-		"function! pum#complete_info(...) abort",
-		"  return g:skkelua_test_pum_info",
-		"endfunction",
-		"function! pum#current_item() abort",
-		"  return g:skkelua_test_pum_current",
-		"endfunction",
-	}, dir .. "/autoload/pum.vim")
-	vim.g.skkelua_test_pum_info = info
-	vim.g.skkelua_test_pum_current = current
-	vim.opt.runtimepath:prepend(dir)
-	vim.cmd("runtime autoload/pum.vim")
-	local ok, err = pcall(fn)
-	vim.opt.runtimepath:remove(dir)
-	vim.cmd("delfunction pum#visible | delfunction pum#complete_info | delfunction pum#current_item")
-	vim.fn.delete(dir, "rf")
-	if not ok then
-		error(err, 0)
-	end
-end
-
-t.test("pum.vim reports the selected LSP item", function()
-	local lspitem = vim.json.encode({ label = "漢字", data = { skkelua = true } })
-	with_pum(
-		{ pum_visible = true, selected = 1, inserted = "漢字" },
-		{ user_data = { lspitem = lspitem } },
-		function()
-			local external, item = require("skkelua.completion").selection()
-			t.assert_equals(true, external)
-			t.assert_equals({ label = "漢字", data = { skkelua = true } }, item)
-		end
-	)
-end)
-
-t.test("pum.vim has no selection while nothing is selected", function()
-	with_pum({ pum_visible = true, selected = -1 }, {}, function()
-		t.assert_equals({ true, nil }, { require("skkelua.completion").selection() })
-	end)
-end)
-
-t.test("nvim-cmp reports the active entry's completion item", function()
-	local saved = package.loaded["cmp"]
-	local item = { label = "漢字", data = { skkelua = true, register = true } }
-	package.loaded["cmp"] = {
-		visible = function()
-			return true
-		end,
-		get_active_entry = function()
-			return {
-				get_completion_item = function()
-					return item
-				end,
-			}
-		end,
-	}
-	local ok, err = pcall(function()
-		local external, selected = require("skkelua.completion").selection()
-		t.assert_equals(true, external)
-		t.assert_equals(item, selected)
-		t.assert_equals(true, require("skkelua.completion").is_register_item(selected))
-	end)
-	package.loaded["cmp"] = saved
-	if not ok then
-		error(err, 0)
-	end
+	local list = require("skkelua.lsp.list")
+	t.assert_equals(nil, list.item_data({ data = { other = true } }))
+	t.assert_equals(nil, list.item_data(nil))
+	t.assert_equals({ skkelua = true }, list.item_data({ data = { skkelua = true } }))
 end)

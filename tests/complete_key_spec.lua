@@ -155,29 +155,6 @@ t.test("raw abbrev candidate is committed without dictionary registration", func
 	t.assert_equals({}, lib:get_henkan_result("okurinasi", "kanji"))
 end)
 
-t.test("<C-y> with cmp selection returns cmp confirm command", function()
-	setup_henkan_input()
-
-	local saved = package.loaded["cmp"]
-	package.loaded["cmp"] = {
-		visible = function()
-			return true
-		end,
-		get_active_entry = function()
-			return {
-				get_completion_item = function()
-					return { data = { skkelua = true } }
-				end,
-			}
-		end,
-	}
-	local status = require("skkelua").vim_status()
-	local ok, ret = pcall(handle_key, "<c-y>", status.completeInfo, status.completeType)
-	package.loaded["cmp"] = saved
-	assert(ok, ret)
-	t.assert_equals("<Cmd>lua require('cmp').confirm({select = true})", ret.result)
-end)
-
 t.test("<C-y> on the selected [辞書登録] item keeps the henkan input state", function()
 	local skkelua = require("skkelua")
 	setup_henkan_input()

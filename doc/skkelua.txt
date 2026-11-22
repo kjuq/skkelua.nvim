@@ -366,7 +366,7 @@ EXTENSION                                       *skkelua-completion-extension*
 
 Neovim 組み込み以外の補完 UI でも、skkelua の候補を LSP 経由で受け取れます。
 候補の生成・辞書の学習・[辞書登録] は skkelua の in-process LSP サーバーが担い、
-UI 側は通常の LSP クライアントとして接続します。
+UI 側は通常の LSP クライアントとして接続します。UI ごとの設定はありません。
 
 require("skkelua.lsp").start({bufnr}?)                   *skkelua.lsp.start()*
 	{bufnr} (省略時は現在のバッファ) を共有 LSP クライアントへ attach し、
@@ -390,35 +390,21 @@ require("skkelua.lsp").start({bufnr}?)                   *skkelua.lsp.start()*
 `executeCommandProvider` で宣言しています。クライアントが候補の確定時
 (キャンセル時ではなく) に |vim.lsp.Client:exec_cmd()| 相当で command を
 実行すると、ユーザー辞書への学習と [辞書登録] の登録プロンプトが動きます。
-command を実行しない UI では、これらは動きません (pum.vim と nvim-cmp を
-自動検出する場合も同じです)。
+command を実行しない UI では、これらは動きません。
 
-require("skkelua.completion").set_adapter({adapter}?)
-                                            *skkelua.completion.set_adapter()*
-	補完メニューを持つ UI を skkelua のキー処理 (CTRL-Y, <CR> など) へ
-	接続します。nil で自動検出に戻ります。{adapter} のフィールド:
-	- selected: `fun(): table?`
-	  メニューで選択中の LSP CompletionItem (data を含む)。メニューが無い
-	  か未選択なら nil を返します。item を持てない UI は空のテーブルで
-	  「選択中」だけを伝えられます。例外を投げた場合は未選択として扱います
-	- confirm: `fun(): string`
-	  選択中の候補を確定するキー列 (|nvim_replace_termcodes()| 済み)。
-	  文字列が "<Cmd>" で始まる場合は、skkelua が <CR> を補って実行します。
-	  同期的にテキストを変更しないでください
->lua
-	require("skkelua.completion").set_adapter({
-		selected = function()
-			return my_menu.selected_item()
-		end,
-		confirm = function()
-			return vim.keycode("<Cmd>lua my_menu.confirm()<CR>")
-		end,
-	})
-<
-明示的に設定したアダプターは自動検出より優先されます。アダプターを設定
-している間は、組み込みの補完メニューや pum.vim / nvim-cmp の表示状態は
-参照されません。アダプターを設定しない場合は、表示中の pum.vim と nvim-cmp
-を自動検出して CTRL-Y などの確定を連携します。
+skkelua は UI の選択状態を問い合わせません。UI が選択した候補を pre-edit の
+位置へ挿入している間は、insertOnSelect の選択挿入と同じに扱います。
+- CTRL-Y / <CR> は、その候補を skkelua 自身の出力で確定して学習します
+- 続けて打つキーは、その候補を確定した上での入力になります
+- CTRL-W は挿入中の候補を消します。X と > も選択挿入中と同じです
+確定によるテキストの変更で UI が補完を再要求すると、空の応答が返って
+メニューが閉じます。
+
+Note: skkelua が有効な間、CTRL-Y は skkelua の |:lmap| が |:imap| より先に
+処理するため、UI の CTRL-Y マップには届きません。[辞書登録] 項目は挿入
+テキストが pre-edit のままでバッファから区別できず、他の補完ソースの候補は
+skkelua の候補ではないため、どちらも CTRL-Y ではかな確定・パススルーに
+なります。これらは skkelua がマップしていないキーで UI に確定させてください。
 
 ==============================================================================
 MACRO                                                          *skkelua-macro*
@@ -438,9 +424,10 @@ insert モードでの skkelua のキーは |:lmap| (言語マッピング) で�
   再生時に改めて変換されます。
 - 補完メニュー (|skkelua-completion|) で選んだ候補の確定 (<C-y> / <CR>、
   insertOnSelect では続けて打つキーも) は、skkelua 自身の出力 (pre-edit の
-  削除 + 候補の挿入) として記録されます。メニューを開く・選ぶ操作 (CTRL-N
-  など) も打鍵として記録されますが、再生時にメニューが開くかどうかに
-  関係なく同じ文字列が入ります。ただし [辞書登録] 項目の確定 (登録
+  削除 + 候補の挿入) として記録されます。他の補完 UI
+  (|skkelua-completion-extension|) が挿入した候補も同じです。メニューを
+  開く・選ぶ操作 (CTRL-N など) も打鍵として記録されますが、再生時に
+  メニューが開くかどうかに関係なく同じ文字列が入ります。ただし [辞書登録] 項目の確定 (登録
   プロンプト) は再生できません。
 
 |:lmap| は打鍵にしか適用されないため、他のマッピングや |feedkeys()| から

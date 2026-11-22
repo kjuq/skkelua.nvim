@@ -9,6 +9,17 @@ M.ACCEPT_COMMAND = "skkelua.accept"
 
 local candidates_of = require("skkelua.lsp.candidates")
 
+--- CompletionItem が skkelua の候補なら、その data を返す
+---@param item? table
+---@return table?
+function M.item_data(item)
+	local data = type(item) == "table" and item.data or nil
+	if type(data) == "table" and data.skkelua == true then
+		return data
+	end
+	return nil
+end
+
 local function completion_config()
 	return require("skkelua.config").config.completion
 end

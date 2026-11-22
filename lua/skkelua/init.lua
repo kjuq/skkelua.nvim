@@ -89,13 +89,21 @@ end
 -- vim status の収集 (skkeleton#vim_status 相当)
 --------------------------------------------------------------------
 
+--- 補完メニューの状態。
+--- builtin の pum が無いときは、補完 UI が pre-edit の位置へ挿入した
+--- skkelua の候補をバッファから探す (UI には問い合わせない、lsp.lua 参照)。
+--- 見つかれば "inserted" として、その候補を選択中の native と同じ形で返す
+---@param mode string
+---@param prev_input string
 ---@return string, table
-local function complete_info()
-	local external, item = require("skkelua.completion").selection()
-	if external then
-		-- 外部 UI は選択中の候補だけを伝える。未選択のメニューはキー処理に
-		-- 影響しないので、メニューが無いのと同じに扱う
-		return "external", { pum_visible = item ~= nil, selected = item and 0 or -1, completion_item = item }
+local function complete_info(mode, prev_input)
+	if mode == "i" and vim.fn.pumvisible() == 0 then
+		local shown = require("skkelua.store").get_context().preEdit:shown()
+		local word, data = require("skkelua.lsp").inserted_candidate(prev_input, shown)
+		if word then
+			local item = { word = word, user_data = { nvim = { lsp = { completion_item = { data = data } } } } }
+			return "inserted", { pum_visible = 1, selected = 0, items = { item } }
+		end
 	end
 	-- items は選択中の [辞書登録] 項目の判定 (handle_impl) に使う
 	return "native", vim.fn.complete_info({ "pum_visible", "selected", "items" })
@@ -109,7 +117,6 @@ end
 
 ---@return skkelua.VimStatus
 function M.vim_status()
-	local complete_type, info = complete_info()
 	local m = vim.fn.mode()
 	local prev_input
 	if m == "i" or m == "t" then
@@ -117,6 +124,7 @@ function M.vim_status()
 	else
 		prev_input = vim.fn.getcmdline():sub(1, vim.fn.getcmdpos() - 1)
 	end
+	local complete_type, info = complete_info(m, prev_input)
 	return {
 		prevInput = prev_input,
 		completeInfo = info,
@@ -135,14 +143,12 @@ local function is_opts(opts)
 	return type(opts) == "table" and type(opts.key) == "table"
 end
 
---- complete_type ごとの補完確定キー・コマンド
+--- 補完確定キー。builtin の pum だけが対象
 ---@param complete_type string
 ---@return string?
 local function native_confirm_key(complete_type)
 	if complete_type == "native" then
 		return require("skkelua.notation").notation_to_key["<c-y>"]
-	elseif complete_type == "external" then
-		return require("skkelua.completion").confirm()
 	end
 	return nil
 end
@@ -179,19 +185,21 @@ local SELECTION_AWARE_FUNCTIONS = {
 }
 
 --- 補完メニューで選択中の skkelua の候補を、このキーで確定するかどうか。
---- 確定キー (<C-y> / <CR>) は常に確定する。insertOnSelect では選択と同時に
---- 候補がバッファへ入っており、続けて打つキーは (選択挿入中の word を
---- 扱う機能を除き) その候補を確定した上での入力になる。
---- insertOnSelect でない場合、選択は表示上のフォーカスだけなので、
---- 確定キー以外では確定しない (Space は skkelua 自身の候補送りになる)
+--- 確定キー (<C-y> / <CR>) は常に確定する。insertOnSelect や、補完 UI が
+--- 候補を挿入済み (inserted) の場合は候補がバッファへ入っており、続けて
+--- 打つキーは (選択挿入中の word を扱う機能を除き) その候補を確定した上での
+--- 入力になる。
+--- それ以外の場合、選択は表示上のフォーカスだけなので、確定キー以外では
+--- 確定しない (Space は skkelua 自身の候補送りになる)
 ---@param notation_str string
 ---@param state_type string
+---@param inserted boolean 候補がバッファへ挿入済みか
 ---@return boolean
-local function should_finalize_completion(notation_str, state_type)
+local function should_finalize_completion(notation_str, state_type, inserted)
 	if notation_str == "<c-y>" or notation_str == "<cr>" then
 		return true
 	end
-	if not require("skkelua.config").config.completion.insertOnSelect then
+	if not (inserted or require("skkelua.config").config.completion.insertOnSelect) then
 		return false
 	end
 	local name = require("skkelua.keymap").function_name(state_type, notation_str)
@@ -203,10 +211,10 @@ end
 ---
 --- 補完 UI による候補の挿入 (insertOnSelect の選択挿入や、確定時の textEdit
 --- の適用) はバッファの直接書き換えでキー列にならず、マクロに残らない。
---- そこで pum を <C-e> で閉じて選択挿入前の pre-edit 表示に戻し、pre-edit を
+--- そこで選択挿入前の pre-edit 表示に戻し (_revert_completion)、pre-edit を
 --- 消して候補を入れるキー列を出力する。マクロには「pre-edit の削除 + 候補」
---- だけが記録され、再生時は補完に頼らず同じ文字列が入る (<C-e> は <Cmd> の
---- 中で pum が見えている時だけ送るので、再生時には何もしない)。
+--- だけが記録され、再生時は補完に頼らず同じ文字列が入る (戻す処理は
+--- 候補が挿入されている時だけ働くので、再生時には何もしない)。
 --- 確定した候補の辞書登録は、native の確定 (クライアントが item.command を
 --- 実行する経路) を通らないためここで行う
 ---@param context skkelua.Context
@@ -264,18 +272,11 @@ local function handle_impl(opts, vim_status)
 		if completed and type(info.items) == "table" then
 			sel_item = info.items[info.selected + 1]
 		end
-		-- 選択中の候補を LSP の CompletionItem として扱う
-		-- (native は complete_info の items から、外部 UI はアダプターから取る)
-		local completion = require("skkelua.completion")
-		local completion_item = info.completion_item
-			or vim.tbl_get(sel_item or {}, "user_data", "nvim", "lsp", "completion_item")
-		local data = completion.item_data(completion_item)
-		if
-			vim_status.completeType == "native"
-			and data
-			and not data.register
-			and should_finalize_completion(notation_str, context.state.type)
-		then
+		local data = require("skkelua.lsp.list").item_data(
+			vim.tbl_get(sel_item or {}, "user_data", "nvim", "lsp", "completion_item")
+		)
+		local inserted = vim_status.completeType == "inserted"
+		if data and not data.register and should_finalize_completion(notation_str, context.state.type, inserted) then
 			-- 選択中の skkelua の候補は native の確定に任せず、自前の出力で確定する
 			prefix = finalize_completion(context, data, sel_item.word)
 			if notation_str == "<c-y>" or (notation_str == "<cr>" and config.eggLikeNewline) then
@@ -287,7 +288,7 @@ local function handle_impl(opts, vim_status)
 				-- [辞書登録] 項目の確定はバッファを変えず、候補の command
 				-- (skkelua.accept) からの registerWord が変換入力の続きとして
 				-- 実行されるため状態を保つ
-				if not completion.is_register_item(completion_item) then
+				if not (data and data.register) then
 					require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
 					context.preEdit:output("")
 				end
@@ -406,6 +407,15 @@ local function handle_request(func, opts, vim_status)
 	local util = require("skkelua.util")
 	local context = store.get_context()
 	last_drawn = context.preEdit:shown()
+	-- 補完 UI が挿入している候補を、選択挿入中の word を扱う機能
+	-- (lsp.selected_word() の利用箇所) へ渡す
+	local selection
+	if vim_status.completeType == "inserted" then
+		local item = vim_status.completeInfo.items[1]
+		selection =
+			{ word = item.word, data = vim.tbl_get(item, "user_data", "nvim", "lsp", "completion_item", "data") }
+	end
+	require("skkelua.lsp").set_key_selection(selection)
 	-- 補完の後など preEdit とバッファが不一致している状態の時にリセットする
 	if vim_status.mode ~= "t" and not util.ends_with(vim_status.prevInput, context:to_string()) then
 		require("skkelua.mode").initialize_state_with_abbrev(context, { "converter" })
@@ -716,12 +726,15 @@ function M._restore_pending_maps()
 	end
 end
 
---- 補完メニューが開いていれば <C-e> で閉じ、選択挿入前の pre-edit 表示に戻す
---- (finalize_completion が出力の先頭に付ける <Cmd> から呼ばれる。
----  マクロの再生など、メニューが無ければ何もしない)
+--- 補完で挿入された候補を、選択挿入前の pre-edit 表示に戻す。
+--- builtin の pum は <C-e> で閉じ、他の補完 UI が挿入した候補はバッファを
+--- 直接書き戻す (finalize_completion が出力の先頭に付ける <Cmd> から呼ばれる。
+--- マクロの再生など、候補が挿入されていなければ何もしない)
 function M._revert_completion()
 	if vim.fn.pumvisible() == 1 then
 		vim.api.nvim_feedkeys(termcode("<C-e>"), "ni", false)
+	else
+		require("skkelua.lsp").revert_inserted()
 	end
 end
 
