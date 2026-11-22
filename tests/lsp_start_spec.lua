@@ -1,0 +1,302 @@
+-- skkelua の LSP クライアント (lsp.start) のテスト
+
+local t = require("tests.helper")
+
+local vim_status = { mode = "", prevInput = "", completeInfo = {}, completeType = "" }
+
+--- ▽かんじ を置いたバッファを作る。name が無ければ名前の無いバッファ
+---@param name? string
+---@return integer bufnr
+local function setup_henkan_buffer(name)
+	local lib = require("skkelua.store").get_library()
+	lib:register_henkan_result("okurinasi", "かんじ", "漢字")
+	local skkelua = require("skkelua")
+	skkelua._handle_request("enable", {}, vim_status)
+	for _, k in ipairs({ "K", "a", "n", "j", "i" }) do
+		skkelua._handle_request("handleKey", { key = { k } }, {
+			mode = "",
+			prevInput = require("skkelua.store").get_context():to_string(),
+			completeInfo = {},
+			completeType = "",
+		})
+	end
+	t.assert_equals("▽かんじ", skkelua.get_pre_edit())
+	vim.cmd.enew({ bang = true })
+	local buf = vim.api.nvim_get_current_buf()
+	if name then
+		vim.api.nvim_buf_set_name(buf, vim.fn.tempname() .. "-" .. name)
+	end
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "▽かんじ" })
+	return buf
+end
+
+---@param buf integer
+---@return vim.lsp.Client
+local function started_client(buf)
+	local id = require("skkelua.lsp").start(buf)
+	local client = assert(vim.lsp.get_client_by_id(id))
+	t.assert_true(vim.wait(1000, function()
+		return client.initialized
+	end))
+	return client
+end
+
+--- 同期的に textDocument/completion を要求する
+---@param client vim.lsp.Client
+---@param buf integer
+---@param character integer
+local function request_completion(client, buf, character)
+	local result
+	client:request("textDocument/completion", {
+		textDocument = { uri = vim.uri_from_bufnr(buf) },
+		position = { line = 0, character = character },
+	}, function(_, res)
+		result = res or false
+	end, buf)
+	t.assert_true(vim.wait(1000, function()
+		return result ~= nil
+	end))
+	return result
+end
+
+local function cleanup(...)
+	for _, client in ipairs({ ... }) do
+		client:stop(true)
+	end
+	vim.cmd.bwipeout({ bang = true })
+end
+
+t.test("start shares one client across buffers and calls", function()
+	local first = setup_henkan_buffer("a")
+	local client = started_client(first)
+	t.assert_equals(client.id, require("skkelua.lsp").start(first))
+
+	vim.cmd.enew({ bang = true })
+	local second = vim.api.nvim_get_current_buf()
+	t.assert_equals(client.id, require("skkelua.lsp").start(second))
+	t.assert_true(vim.lsp.buf_is_attached(first, client.id))
+	t.assert_true(vim.lsp.buf_is_attached(second, client.id))
+	vim.cmd.bwipeout({ bang = true })
+	cleanup(client)
+end)
+
+t.test("start's client reports the request as sent with an id and can cancel it", function()
+	-- 戻り値で送信の成否を判断するクライアントは、id が無いと結果を捨てる。builtin の補完は見ないので別に確認する
+	local buf = setup_henkan_buffer("sent")
+	local client = started_client(buf)
+	local ok, id = client:request("textDocument/completion", {
+		textDocument = { uri = vim.uri_from_bufnr(buf) },
+		position = { line = 0, character = #"▽かんじ" },
+	}, function() end, buf)
+	t.assert_equals(true, ok)
+	t.assert_true(type(id) == "number")
+	t.assert_equals(true, client:cancel_request(id))
+	cleanup(client)
+end)
+
+t.test("start returns a UI-independent list for the requested position", function()
+	local buf = setup_henkan_buffer("b")
+	local client = started_client(buf)
+	local list = request_completion(client, buf, #"▽かんじ")
+
+	t.assert_equals(
+		{ "漢字", "[辞書登録]" },
+		vim.tbl_map(function(item)
+			return item.label
+		end, list.items)
+	)
+	-- 組み込みメニュー向けの整形 (スニペット化・filterText の除去) はしない
+	local item = list.items[1]
+	t.assert_equals(vim.lsp.protocol.InsertTextFormat.PlainText, item.insertTextFormat)
+	t.assert_equals("漢字", item.textEdit.newText)
+	t.assert_equals("▽かんじ", item.filterText)
+	t.assert_equals("skkelua.accept", item.command.command)
+	cleanup(client)
+end)
+
+t.test("start serves the current buffer even when it has no name", function()
+	-- 名前の無いバッファは全て同じ URI になるため、現在のバッファを要求元とみなす
+	local buf = setup_henkan_buffer()
+	t.assert_equals("", vim.api.nvim_buf_get_name(buf))
+	local client = started_client(buf)
+	local list = request_completion(client, buf, #"▽かんじ")
+	t.assert_equals(
+		{ "漢字", "[辞書登録]" },
+		vim.tbl_map(function(item)
+			return item.label
+		end, list.items)
+	)
+	cleanup(client)
+end)
+
+t.test("start returns nothing for unknown documents and stale positions", function()
+	local buf = setup_henkan_buffer("c")
+	local client = started_client(buf)
+	local unknown = {}
+	client:request("textDocument/completion", {
+		textDocument = { uri = "file:///no/such/document" },
+		position = { line = 0, character = 0 },
+	}, function(_, res)
+		unknown.result = res
+	end, buf)
+	t.assert_true(vim.wait(1000, function()
+		return unknown.result ~= nil
+	end))
+	t.assert_equals(0, #unknown.result.items)
+	-- カーソル前のテキストが pre-edit で終わらない位置では候補を出さない
+	t.assert_equals(0, #request_completion(client, buf, #"▽か").items)
+	cleanup(client)
+end)
+
+--- vim.lsp.completion.enable の呼び出しを記録する。戻り値の関数で元に戻す
+---@return {enable: boolean, client_id: integer, bufnr: integer, autotrigger: boolean?}[] calls
+---@return fun() restore
+local function spy_completion_enable()
+	local calls = {}
+	local orig = vim.lsp.completion.enable
+	vim.lsp.completion.enable = function(enable, client_id, bufnr, opts)
+		calls[#calls + 1] = {
+			enable = enable,
+			client_id = client_id,
+			bufnr = bufnr,
+			autotrigger = opts and opts.autotrigger,
+		}
+		return orig(enable, client_id, bufnr, opts)
+	end
+	return calls, function()
+		vim.lsp.completion.enable = orig
+	end
+end
+
+--- 最後の vim.lsp.completion.enable の呼び出し
+local function last(calls)
+	return calls[#calls] or {}
+end
+
+t.test("builtin completion attaches start's client on InsertEnter and follows SKK", function()
+	require("skkelua").config({ completion = { enabled = true } })
+	local calls, restore = spy_completion_enable()
+	local ok, err = pcall(function()
+		local buf = setup_henkan_buffer("d")
+		vim.api.nvim_exec_autocmds("InsertEnter", { buffer = buf, modeline = false })
+		local client = assert(require("skkelua.lsp").client(buf))
+		t.assert_true(vim.wait(1000, function()
+			return client.initialized and last(calls).enable == true
+		end))
+		-- 外部 UI と同じ 1 つのクライアントで、builtin の補完 UI が動く
+		t.assert_equals(1, #vim.lsp.get_clients({ bufnr = buf, name = "skkelua" }))
+		t.assert_equals(client.id, require("skkelua.lsp").start(buf))
+		t.assert_equals({ enable = true, client_id = client.id, bufnr = buf, autotrigger = true }, last(calls))
+
+		-- 応答は builtin 向けに整形される
+		vim.api.nvim_win_set_cursor(0, { 1, #"▽かんじ" })
+		local list = request_completion(client, buf, #"▽かんじ")
+		t.assert_equals(vim.lsp.protocol.InsertTextFormat.Snippet, list.items[1].insertTextFormat)
+
+		-- 補完 UI は SKK の有効・無効に連動し、クライアントは残る
+		require("skkelua")._handle_request("disable", {}, vim_status)
+		t.assert_equals({ enable = false, client_id = client.id, bufnr = buf }, last(calls))
+		t.assert_true(vim.lsp.buf_is_attached(buf, client.id))
+		require("skkelua")._handle_request("enable", {}, vim_status)
+		t.assert_equals(true, last(calls).enable)
+		cleanup(client)
+	end)
+	restore()
+	if not ok then
+		error(err, 0)
+	end
+end)
+
+t.test("without builtin completion, InsertEnter and SKK toggles leave the buffer alone", function()
+	local calls, restore = spy_completion_enable()
+	local ok, err = pcall(function()
+		local buf = setup_henkan_buffer("e")
+		vim.api.nvim_exec_autocmds("InsertEnter", { buffer = buf, modeline = false })
+		t.assert_equals(nil, require("skkelua.lsp").client(buf))
+
+		local client = started_client(buf)
+		vim.bo[buf].completeopt = "menu"
+		require("skkelua")._handle_request("disable", {}, vim_status)
+		require("skkelua")._handle_request("enable", {}, vim_status)
+		t.assert_equals(0, #calls)
+		t.assert_equals("menu", vim.bo[buf].completeopt)
+		cleanup(client)
+	end)
+	restore()
+	if not ok then
+		error(err, 0)
+	end
+end)
+
+t.test("start uses the current buffer by default and restarts after the client stops", function()
+	local buf = setup_henkan_buffer("g")
+	local client = started_client(buf)
+	t.assert_equals(client.id, require("skkelua.lsp").start())
+	t.assert_equals(client.id, require("skkelua.lsp").start(0))
+
+	client:stop(true)
+	t.assert_true(vim.wait(1000, function()
+		return client:is_stopped()
+	end))
+	local restarted = started_client(buf)
+	t.assert_true(restarted.id ~= client.id)
+	cleanup(restarted)
+end)
+
+t.test("start's client stays attached after SKK is disabled", function()
+	local buf = setup_henkan_buffer("h")
+	local client = started_client(buf)
+	require("skkelua")._handle_request("disable", {}, vim_status)
+	t.assert_true(vim.lsp.buf_is_attached(buf, client.id))
+	t.assert_equals(false, client:is_stopped())
+	cleanup(client)
+end)
+
+--- 同期的にリクエストし、(err, result) を返す
+---@param client vim.lsp.Client
+---@param buf integer
+---@param method string
+---@param params table
+local function request(client, buf, method, params)
+	local done, err, result = false, nil, nil
+	client:request(method, params, function(e, r)
+		done, err, result = true, e, r
+	end, buf)
+	t.assert_true(
+		vim.wait(1000, function()
+			return done
+		end),
+		method .. " was never answered"
+	)
+	return err, result
+end
+
+t.test("the server answers requests it cannot serve", function()
+	local buf = setup_henkan_buffer("e")
+	local client = started_client(buf)
+
+	local err = request(client, buf, "completionItem/resolve", { label = "x" })
+	t.assert_equals(vim.lsp.protocol.ErrorCodes.MethodNotFound, err.code)
+
+	-- position の無い補完要求も応答を返す (候補は無い)
+	local _, list = request(client, buf, "textDocument/completion", {
+		textDocument = { uri = vim.uri_from_bufnr(buf) },
+	})
+	t.assert_equals(0, #list.items)
+
+	err = request(client, buf, "workspace/executeCommand", { command = "no.such.command" })
+	t.assert_equals(-32603, err.code)
+	t.assert_equals("unknown command: no.such.command", err.message)
+	cleanup(client)
+end)
+
+t.test("start finds the requested document when it is not the current buffer", function()
+	local buf = setup_henkan_buffer("f")
+	local client = started_client(buf)
+	vim.cmd.enew({ bang = true })
+	local list = request_completion(client, buf, #"▽かんじ")
+	t.assert_equals(2, #list.items)
+	vim.cmd.bwipeout({ bang = true })
+	vim.api.nvim_buf_delete(buf, { force = true })
+	client:stop(true)
+end)

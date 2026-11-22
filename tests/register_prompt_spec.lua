@@ -52,6 +52,38 @@ t.test("register prompt opens a float prompt buffer with skkelua enabled", funct
 	end
 end)
 
+t.test("register prompt gets the LSP client of the buffer it was opened from", function()
+	local prompt = require("skkelua.register_prompt")
+	local lsp = require("skkelua.lsp")
+	local opts = { title = "[辞書登録] てすと", on_confirm = function() end, on_cancel = function() end }
+	-- 前のテストのプロンプトのウィンドウ破棄 (schedule) を済ませてから作る
+	vim.wait(100)
+	local buf = prepare_buffer()
+	local ok, err = pcall(function()
+		-- 補完 UI のクライアントが無いバッファからは、プロンプトにも付けない
+		prompt.open(opts)
+		t.assert_equals(nil, lsp.client(prompt._current().buf))
+		prompt._close()
+		-- ウィンドウの破棄は schedule される
+		t.assert_true(vim.wait(1000, function()
+			return vim.api.nvim_get_current_buf() == buf
+		end))
+
+		local client_id = lsp.start(buf)
+		prompt.open(opts)
+		local outer = prompt._current().buf
+		t.assert_equals(client_id, (lsp.client(outer) or {}).id)
+		-- ネストしたプロンプトは外側のプロンプトから引き継ぐ
+		prompt.open(opts)
+		t.assert_equals(client_id, (lsp.client(prompt._current().buf) or {}).id)
+	end)
+	cleanup_buffer(buf, prompt)
+	require("skkelua")._handle_request("disable", {}, vim_status)
+	if not ok then
+		error(err, 0)
+	end
+end)
+
 t.test("external window close triggers on_cancel", function()
 	local prompt = require("skkelua.register_prompt")
 	local cancelled = false

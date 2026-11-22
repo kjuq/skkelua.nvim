@@ -36,5 +36,8 @@ vim.api.nvim_create_autocmd("InsertEnter", {
 	end,
 })
 
--- 変換候補の builtin LSP 補完 (skkelua の有効化・無効化に連動)
+-- builtin の補完 UI (completion.enabled): insert モードで LSP クライアントを
+-- attach し、補完 UI を skkelua の有効化・無効化に連動させる
 require("skkelua.lsp").setup_autocmds()
+-- 補完 UI が挿入した候補の検出 (補完の要求時の pre-edit の位置を覚える)
+require("skkelua.completion_ui").setup_autocmds()

@@ -132,7 +132,7 @@ function M.pass_through(context, key)
 	if state.type == "input" and state.mode == "direct" then
 		-- 補完の選択挿入中 (バッファが候補 word に置き換わり、prevInput
 		-- 不一致で direct へリセット済み) もバッファを崩すため無視する
-		if require("skkelua.lsp").selected_word() then
+		if require("skkelua.completion_ui").selected_word() then
 			return
 		end
 		context:kakutei(key)
@@ -149,7 +149,7 @@ function M.delete_pre_edit(context, key)
 		-- insertOnSelect の選択挿入中はバッファが候補 word に置き換わって
 		-- おり、prevInput 不一致で state は direct へリセット済み。
 		-- 挿入中の word を表示中テキストとして同期し、まとめて削除する
-		local word = require("skkelua.lsp").selected_word()
+		local word = require("skkelua.completion_ui").selected_word()
 		if word then
 			context.preEdit:sync(word)
 			return
@@ -180,7 +180,7 @@ function M.purge_candidate(context, key)
 		restore_mode, restore_henkan_feed, restore_okuri_feed = state.mode, state.henkanFeed, state.okuriFeed
 	elseif state.type == "input" then
 		if state.mode == "direct" then
-			local sel_word, data = require("skkelua.lsp").selected_word()
+			local sel_word, data = require("skkelua.completion_ui").selected_word()
 			-- raw 候補 (abbrev の入力そのまま) は辞書エントリではないので対象外
 			if data and not data.raw then
 				type_, word, candidate = data.type, data.midasi, data.word
