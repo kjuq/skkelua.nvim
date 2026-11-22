@@ -354,11 +354,11 @@ local function builtin_client(buf)
 	end
 end
 
---- タイプを伴わずに pre-edit が復元された (辞書登録のキャンセルなど) ことを知らせる。
---- autotrigger はトリガー文字のタイプでしか働かないため、builtin の補完は
---- ここで明示的に再要求する。外部の補完 UI は User イベントで再要求する
-function M.pre_edit_restored()
-	pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "skkelua-pre-edit-restored", modeline = false })
+--- 現在のバッファで builtin の補完を明示的にトリガーする。
+--- autotrigger はトリガー文字のタイプでしか働かないため、辞書登録の
+--- キャンセルなどタイプを伴わずに pre-edit が復元された時に呼ぶ。
+--- 他の補完 UI はバッファの変更 (TextChangedI) で再要求する
+function M.trigger()
 	if not completion_config().enabled or vim.fn.mode() ~= "i" then
 		return
 	end

@@ -176,11 +176,6 @@ AUTOCMDS                                                    *skkelua-autocmds*
 		参照できます。
 	skkelua-handled
 		キー処理の完了後。
-	skkelua-pre-edit-restored
-		辞書登録のキャンセルなど、タイプを伴わずに pre-edit が復元された
-		後。タイプを伴わないので補完 UI の自動表示は働きません。UI の補完を
-		再要求するにはこのイベントで呼んでください (組み込みの補完は
-		skkelua が再要求します)。
 	skkelua-persistent-enable / skkelua-persistent-disable
 		persistent mode の有効化・無効化時。
 

@@ -85,19 +85,6 @@ t.test("an explicit adapter takes precedence over detected UIs", function()
 	t.assert_equals("external-confirm", confirm)
 end)
 
-t.test("a restored pre-edit is announced to completion UIs through a User event", function()
-	local fired = 0
-	local id = vim.api.nvim_create_autocmd("User", {
-		pattern = "skkelua-pre-edit-restored",
-		callback = function()
-			fired = fired + 1
-		end,
-	})
-	require("skkelua.lsp").pre_edit_restored()
-	vim.api.nvim_del_autocmd(id)
-	t.assert_equals(1, fired)
-end)
-
 t.test("selected_word finds the selected candidate's text before the cursor", function()
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.api.nvim_set_current_buf(buf)
