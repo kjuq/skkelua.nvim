@@ -105,6 +105,8 @@ function Indicator.new()
 	local defs = {
 		{ "InsertEnter", "*", self:method("open") },
 		{ "InsertLeave", "*", self:method("close") },
+		-- i_CTRL-C は InsertLeave を発火しないので、モード遷移でも閉じる
+		{ "ModeChanged", "i*:n", self:method("close") },
 		{ "CursorMovedI", "*", self:method("move") },
 		{ "User", "skkelua-mode-changed", self:method("update", "mode-changed") },
 		{ "User", "skkelua-disable-post", self:method("update", "disable-post") },
