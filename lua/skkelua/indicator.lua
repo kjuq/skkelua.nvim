@@ -105,6 +105,8 @@ function Indicator.new()
 	local defs = {
 		{ "InsertEnter", "*", self:method("open") },
 		{ "InsertLeave", "*", self:method("close") },
+		-- i_CTRL-C は InsertLeave を発火しないので、モード遷移でも閉じる
+		{ "ModeChanged", "i*:n", self:method("close") },
 		{ "CursorMovedI", "*", self:method("move") },
 		{ "User", "skkelua-mode-changed", self:method("update", "mode-changed") },
 		{ "User", "skkelua-disable-post", self:method("update", "disable-post") },
@@ -164,7 +166,8 @@ function Indicator:set_text(buf, mode)
 	vim.hl.range(buf, self.ns, hl_name, { 0, 0 }, { 0, -1 })
 	self.timer:stop()
 	if config.fadeOutMs > 0 then
-		self.timer:start(config.fadeOutMs, 0, self:method("close"))
+		-- タイマーのコールバックは fast context で、API を呼べないので schedule する
+		self.timer:start(config.fadeOutMs, 0, vim.schedule_wrap(self:method("close")))
 	end
 end
 
@@ -299,6 +302,8 @@ end
 
 ---@return boolean
 function Indicator:is_opened()
+	-- :fclose! など外から閉じられたウィンドウを忘れる (残すと開き直せない)
+	self.winid = vim.tbl_filter(vim.api.nvim_win_is_valid, self.winid)
 	return #self.winid > 0
 end
 

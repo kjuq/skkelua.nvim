@@ -70,6 +70,9 @@ local function init()
 					end
 				end,
 			})
+			-- i_CTRL-C で抜けると次の入力まで SafeState が来ないので、
+			-- イベントループを一周させて SafeState の判定を促す
+			vim.schedule(function() end)
 		end,
 	})
 	-- insert のまま window 切り替えをすると残るので WinLeave でも消す
