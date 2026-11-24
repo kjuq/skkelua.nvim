@@ -203,3 +203,17 @@ t.test("indicator closes when insert mode is left without InsertLeave", function
 	drain()
 	t.assert_equals(nil, indicator_text())
 end)
+
+t.test("indicator reopens after its window is closed externally", function()
+	local skkelua = require("skkelua")
+	skkelua.config({ indicator = { fadeOutMs = 0 } })
+	local instance = attach()
+	skkelua._handle_request("enable", {}, vim_status)
+	instance:close()
+	drain()
+	instance:open()
+	-- :fclose! などで skkelua の外からウィンドウが閉じられる
+	vim.api.nvim_win_close(instance.winid[1], true)
+	instance:open()
+	t.assert_equals("ひら", indicator_text())
+end)

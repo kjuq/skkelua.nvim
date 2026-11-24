@@ -166,7 +166,8 @@ function Indicator:set_text(buf, mode)
 	vim.hl.range(buf, self.ns, hl_name, { 0, 0 }, { 0, -1 })
 	self.timer:stop()
 	if config.fadeOutMs > 0 then
-		self.timer:start(config.fadeOutMs, 0, self:method("close"))
+		-- タイマーのコールバックは fast context で、API を呼べないので schedule する
+		self.timer:start(config.fadeOutMs, 0, vim.schedule_wrap(self:method("close")))
 	end
 end
 
@@ -301,6 +302,8 @@ end
 
 ---@return boolean
 function Indicator:is_opened()
+	-- :fclose! など外から閉じられたウィンドウを忘れる (残すと開き直せない)
+	self.winid = vim.tbl_filter(vim.api.nvim_win_is_valid, self.winid)
 	return #self.winid > 0
 end
 
