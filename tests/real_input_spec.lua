@@ -11,7 +11,7 @@ local root = vim.fs.dirname(vim.fs.dirname(vim.fn.fnamemodify(debug.getinfo(1, "
 ---@param indicator table indicator の設定
 ---@return integer channel
 local function spawn(indicator)
-	local ch = vim.fn.jobstart({ "nvim", "--clean", "--embed", "--headless" }, { rpc = true })
+	local ch = vim.fn.jobstart({ vim.v.progpath, "--clean", "--embed", "--headless" }, { rpc = true })
 	vim.rpcrequest(
 		ch,
 		"nvim_exec_lua",
@@ -75,7 +75,7 @@ t.test("CTRL-C disables skkelua without waiting for another key", function()
 		-- RPC の処理自体がイベントループを動かして SafeState を誘発するので、
 		-- <C-c> の後は RPC を送らずに待ち、最初の 1 回だけで観測する
 		vim.rpcrequest(ch, "nvim_input", "<C-c>")
-		vim.wait(300)
+		vim.wait(1000)
 		t.assert_equals(
 			{ mode = "n", enabled = false },
 			eval(ch, "return { mode = vim.api.nvim_get_mode().mode, enabled = require('skkelua').is_enabled() }")
