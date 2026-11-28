@@ -9,7 +9,12 @@ local util = require("skkelua.util")
 
 local M = {}
 
----@alias skkelua.KanaResult [string, string]|skkelua.Func
+---@class skkelua.KanaPair
+---@field [1] string 確定する文字列 ("*" は除去済み)
+---@field [2] string 残りフィード
+---@field okuriSplit? [string, string] "*" で分割した {語幹, 送り仮名}
+
+---@alias skkelua.KanaResult skkelua.KanaPair|skkelua.Func
 ---@alias skkelua.KanaTable [string, skkelua.KanaResult][]
 
 ---@type table<string, skkelua.KanaTable>?
@@ -73,6 +78,53 @@ function M.get_kana_table(name)
 	return table_
 end
 
+--- 結果文字列の "*" を送り仮名の開始位置として解釈する
+--- "も*う" → "もう", { "も", "う" }
+--- "\*" は文字の "*"、"\\" は文字の "\"。エスケープしない "*" は1つまで
+--- 前後どちらかが空の "*" は分割せず文字として扱う ({ "*", "" } との互換のため)
+---@param s string
+---@return string plain
+---@return [string, string]? split
+local function parse_okuri_star(s)
+	local buf, stem = {}, nil
+	local i = 1
+	while i <= #s do
+		local c, nx = s:sub(i, i), s:sub(i + 1, i + 1)
+		if c == "\\" and (nx == "*" or nx == "\\") then
+			buf[#buf + 1] = nx
+			i = i + 2
+		elseif c == "*" then
+			if stem then
+				error(("Illegal result: %s"):format(vim.inspect(s)))
+			end
+			stem, buf = table.concat(buf), {}
+			i = i + 1
+		else
+			buf[#buf + 1] = c
+			i = i + 1
+		end
+	end
+	local rest = table.concat(buf)
+	if not stem then
+		return rest, nil
+	end
+	if stem == "" or rest == "" then
+		return stem .. "*" .. rest, nil
+	end
+	return stem .. rest, { stem, rest }
+end
+
+---@param s string
+---@param feed string
+---@return skkelua.KanaPair
+local function new_pair(s, feed)
+	local plain, split = parse_okuri_star(s)
+	---@type skkelua.KanaPair
+	local r = { plain, feed }
+	r.okuriSplit = split
+	return r
+end
+
 --- KanaResult へ正規化する。falsy はエントリ削除を表す nil を返す
 ---@param result any
 ---@return skkelua.KanaResult?
@@ -89,7 +141,7 @@ local function as_kana_result(result)
 				error(("Illegal result: %s"):format(vim.inspect(result)))
 			end
 		end
-		return { result[1], result[2] or "" }
+    return new_pair(result[1], result[2] or "")
 	elseif result == nil or result == vim.NIL or result == false or result == "" then
 		return nil
 	end
@@ -158,7 +210,7 @@ local function parse_kana_table_file(file)
 		if not vim.startswith(line, "#") and vim.trim(line) ~= "" then
 			local from, result = line:match("^([^,]*),([^,]*)")
 			if from then
-				entries[#entries + 1] = { from, { result or "", "" } }
+				entries[#entries + 1] = { from, new_pair( result or "", "" ) }
 			end
 		end
 	end

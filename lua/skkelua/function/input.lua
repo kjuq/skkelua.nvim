@@ -75,6 +75,34 @@ local function do_kakutei(context, kana, feed)
 	end
 end
 
+--- 大文字で打たれた最終キーがかなテーブルの分割エントリ ("も*う" など) を
+--- 完成させる場合、語幹を変換ポイントの前に、残りを送り仮名として確定する
+---@param context skkelua.Context
+---@param lower string
+---@return boolean handled
+local function try_okuri_split(context, lower)
+	local state = context.state
+	if state.mode ~= "okurinasi" or state.feed == "" then
+		return false
+	end
+	local key = state.feed .. lower
+	for _, e in ipairs(state.table) do
+		if e[1] == key then
+			local r = e[2]
+			if type(r) ~= "table" or not r.okuriSplit then
+				return false
+			end
+			state.henkanFeed = state.henkanFeed .. r.okuriSplit[1]
+			state.feed = ""
+			state.mode = "okuriari"
+			state.previousFeed = false
+			do_kakutei(context, r.okuriSplit[2], r[2])
+			return true
+		end
+	end
+	return false
+end
+
 --- KanaResult を処理する (かな確定 or 機能関数の呼び出し)
 ---@param context skkelua.Context
 ---@param result skkelua.KanaResult
@@ -133,6 +161,8 @@ function M.kana_input(context, char)
 		end
 		if found_shift then
 			char = with_shift
+		elseif try_okuri_split(context, lower) then
+			return
 		else
 			M.henkan_point(context)
 			M.kana_input(context, lower)
