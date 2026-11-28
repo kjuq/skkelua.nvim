@@ -51,6 +51,13 @@ t.test("okuriari henkan", function()
 		t.dispatch(context, ";utaga;ccha")
 		t.assert_equals("▼疑っちゃ", context:to_string())
 	end
+  do
+		-- かなテーブルの "*" による送り仮名の開始 (register_kanatable が okuriSplit を付ける)
+		local context = new_context()
+		context.state.table = { { "ss", { "おくり", "", okuriSplit = { "おく", "り" } } } }
+		t.dispatch(context, "SS")
+		t.assert_equals("▼送り", context:to_string())
+	end
 end)
 
 t.test("henkan cancel", function()

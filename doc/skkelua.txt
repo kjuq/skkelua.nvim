@@ -522,9 +522,20 @@ register_kanatable() でかな入力ルールを編集できます。
 	require("skkelua").register_kanatable("rom", {
 		["jj"] = "escape",           -- 機能名
 		["z,"] = { "―", "" },        -- {確定文字列, 残りフィード}
+		["mp"] = { "も*う", "" },  -- * で送り仮名の開始位置を指定
 		["xn"] = false,              -- 削除
 	})
 <
+確定文字列に * を含めると、そこから後ろを送り仮名として扱えます。
+
+複数のキーで入力するエントリの最後のキーを大文字にすると、そこまでの文字を
+見出し、* の後ろを送り仮名として変換を開始します。上の例では、"Omp" は
+▽おもう ですが、"OmP" は ▽おも*う になります。AZIK のように、1キーで語幹と
+送り仮名を入力する配列で使えます。
+文字としての * は \*、\ は \\ と書きます。エスケープしない * は確定文字列
+ごとに1つまでで、複数あるとエラーになります。* の前後どちらかが空の場合は
+文字として扱います。
+
 指定できる機能名: kakutei, kakuteiPassThrough, kakuteiSpace, newline, cancel,
 deletePreEdit, passThrough, purgeCandidate, disable, escape, henkanFirst,
 henkanForward, henkanBackward, henkanInput, registerWord, suffix, kakuteiFeed,
